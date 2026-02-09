@@ -1,3 +1,15 @@
+# desktop-assist overall goal
+
+The goal is to drive a desktop machine with LLMs using **PyAutoGUI** and **Pillow**.
+
+There should be commands that allow you to inject a prompt, and then a back-and-forth starts with an LLM (use claude CLI by default) which drives the mouse and keyboard to complete the task.
+
+For example:
+
+```bash
+desktop-assist "Open a browser and look up flights to Tokyo."
+```
+
 # Keep CLAUDE.md updated
 
 If you hit an issue that is likely to trip-up other agents, write a helpful message to CLAUDE.md

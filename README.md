@@ -1,6 +1,14 @@
 # desktop-assist
 
-Drive a desktop machine programmatically using **PyAutoGUI** and **Pillow**.
+Drive a desktop machine with LLMs using **PyAutoGUI** and **Pillow**.
+
+There should be commands that allow you to inject a prompt, and then a back-and-forth starts with an LLM (use claude CLI by default) which drives the mouse and keyboard to complete the task.
+
+For example:
+
+```bash
+desktop-assist "Open a browser and look up flights to Tokyo."
+```
 
 ## Quickstart
 
@@ -38,7 +46,7 @@ desktop_assist/
 | `actions` | Thin wrappers around PyAutoGUI mouse/keyboard functions with sane defaults (`PAUSE`, `FAILSAFE`). |
 | `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
 | `launcher` | Launch apps by name, open files/URLs in default apps, check if apps are running, and wait for app startup. Uses `open` on macOS, `xdg-open` on Linux. |
-| `screen` | Screenshot capture, save-to-disk, and `locate_on_screen` for image-based element detection. |
+| `screen` | Screenshot capture, save-to-disk, `locate_on_screen`, display info (`get_screen_size`, `get_cursor_position`), and visual-wait primitives (`wait_for_image`, `wait_for_image_gone`, `has_region_changed`, `wait_for_region_change`). |
 | `filesystem` | Read, write, append, list, find, and wait for files. Includes `wait_for_file` for downloads and `find_files` for recursive search. Standard library only. |
 | `notifications` | System notification banners and blocking modal dialogs (alert, confirm, prompt). Uses `osascript` on macOS, `notify-send`/`zenity` on Linux. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
