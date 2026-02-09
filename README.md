@@ -25,6 +25,7 @@ desktop_assist/
 ├── clipboard.py   # clipboard read/write and copy/paste helpers
 ├── launcher.py    # launch apps, open files/URLs, check running state
 ├── screen.py      # screen capture & image-location helpers
+├── filesystem.py  # file system helpers (read, write, list, find, wait)
 ├── notifications.py # system notifications and modal dialogs
 ├── windows.py     # window discovery, focus, move & resize
 └── main.py        # CLI entry point / demo
@@ -38,6 +39,7 @@ desktop_assist/
 | `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
 | `launcher` | Launch apps by name, open files/URLs in default apps, check if apps are running, and wait for app startup. Uses `open` on macOS, `xdg-open` on Linux. |
 | `screen` | Screenshot capture, save-to-disk, and `locate_on_screen` for image-based element detection. |
+| `filesystem` | Read, write, append, list, find, and wait for files. Includes `wait_for_file` for downloads and `find_files` for recursive search. Standard library only. |
 | `notifications` | System notification banners and blocking modal dialogs (alert, confirm, prompt). Uses `osascript` on macOS, `notify-send`/`zenity` on Linux. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
 | `main` | Entry point that wires everything together. Run via `desktop-assist` after install. |
