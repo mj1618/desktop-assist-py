@@ -86,7 +86,13 @@ def _macos_ocr(image: Image.Image) -> list[dict[str, Any]]:
 
 def _tesseract_ocr(image: Image.Image) -> list[dict[str, Any]]:
     """Run Tesseract OCR on a PIL Image."""
-    import pytesseract
+    try:
+        import pytesseract
+    except ImportError:
+        raise ImportError(
+            "pytesseract is required for OCR on non-macOS platforms. "
+            "Install it with: pip install pytesseract"
+        )
 
     data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
     results: list[dict[str, Any]] = []

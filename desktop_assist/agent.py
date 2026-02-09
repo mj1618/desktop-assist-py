@@ -377,8 +377,15 @@ def run_agent(
     stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
     stderr_thread.start()
 
+    interrupted = False
     try:
-        for raw_line in proc.stdout:
+        # Use explicit readline() instead of ``for line in proc.stdout``
+        # because the iterator form uses an internal read-ahead buffer that
+        # can resist signal interruption on some platforms.
+        while True:
+            raw_line = proc.stdout.readline()
+            if not raw_line:
+                break
             result = _process_stream_line(
                 raw_line,
                 verbose=verbose,
@@ -389,12 +396,19 @@ def run_agent(
             if result is not None:
                 final_result = result
     except KeyboardInterrupt:
-        _kill_process_tree(proc)
+        interrupted = True
         _log(f"\n{_c(_YELLOW, 'interrupted')} — agent stopped.")
         if session_logger is not None:
             elapsed = time.monotonic() - agent_start
             session_logger.log_done(step_counter[0], elapsed, "[interrupted]")
             session_logger.close()
+    finally:
+        # Always kill the child process tree — even on SystemExit or other
+        # unexpected exceptions — so we never leave an orphaned claude process.
+        if proc.poll() is None:
+            _kill_process_tree(proc)
+
+    if interrupted:
         return "[error] Agent interrupted by user."
 
     proc.wait()

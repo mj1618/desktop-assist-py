@@ -77,17 +77,20 @@ must be installed and configured (`claude` on PATH).
 
 ```
 desktop_assist/
-├── __init__.py    # package metadata
-├── actions.py     # mouse & keyboard helpers (click, type, hotkey, …)
-├── agent.py       # LLM agent loop (drives desktop via Claude CLI)
-├── clipboard.py   # clipboard read/write and copy/paste helpers
-├── launcher.py    # launch apps, open files/URLs, check running state
-├── screen.py      # screen capture & image-location helpers
-├── filesystem.py  # file system helpers (read, write, list, find, wait)
+├── __init__.py      # package metadata
+├── actions.py       # mouse & keyboard helpers (click, type, hotkey, …)
+├── agent.py         # LLM agent loop (drives desktop via Claude CLI)
+├── clipboard.py     # clipboard read/write and copy/paste helpers
+├── launcher.py      # launch apps, open files/URLs, check running state
+├── screen.py        # screen capture & image-location helpers
+├── filesystem.py    # file system helpers (read, write, list, find, wait)
 ├── notifications.py # system notifications and modal dialogs
-├── tools.py       # auto-discovered tool registry for the agent
-├── windows.py     # window discovery, focus, move & resize
-└── main.py        # CLI entry point
+├── ocr.py           # OCR text recognition (Vision on macOS, Tesseract elsewhere)
+├── logging.py       # session logging and JSONL persistence
+├── permissions.py   # macOS accessibility permission checks
+├── tools.py         # auto-discovered tool registry for the agent
+├── windows.py       # window discovery, focus, move & resize
+└── main.py          # CLI entry point
 ```
 
 ## Key modules
@@ -101,8 +104,11 @@ desktop_assist/
 | `filesystem` | Read, write, append, list, find, and wait for files. Includes `wait_for_file` for downloads and `find_files` for recursive search. Standard library only. |
 | `notifications` | System notification banners and blocking modal dialogs (alert, confirm, prompt). Uses `osascript` on macOS, `notify-send`/`zenity` on Linux. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
+| `ocr` | OCR text recognition: `find_text`, `find_all_text`, `click_text`, `read_screen_text`, `wait_for_text`. Uses Apple Vision on macOS, Tesseract on other platforms. |
+| `logging` | Session logging with JSONL persistence: `SessionLogger`, `list_sessions`, `replay_session`. Tracks tool calls, results, and agent responses. |
+| `permissions` | macOS accessibility permission checks. Provides a functional check that actually moves the cursor to verify events are not being silently dropped. |
 | `tools` | Auto-discovers all public functions from helper modules and builds a tool registry with descriptions for the LLM system prompt. |
-| `agent` | Agent loop that sends the user's prompt to the Claude CLI with a system prompt describing all tools, then lets Claude drive the desktop via Bash tool calls. |
+| `agent` | Agent loop that sends the user's prompt to the Claude CLI with a system prompt describing all tools, then lets Claude drive the desktop via Bash tool calls. The agent can take screenshots and view them via the Read tool for visual understanding. |
 | `main` | CLI entry point with argparse. Runs the agent loop when given a prompt, demo mode otherwise. |
 
 ## macOS: Accessibility permissions
@@ -131,6 +137,15 @@ desktop-assist --check-permissions
 > **Note:** If you run `desktop-assist` from inside an IDE's integrated
 > terminal, the *IDE application* (e.g. VS Code / Cursor) is what needs
 > the Accessibility permission, not Terminal.app.
+
+## Screenshot vision
+
+The agent can take screenshots and view them directly using a two-step workflow:
+
+1. `save_screenshot(path)` saves the current screen to a PNG file
+2. The Claude CLI's `Read` tool reads the image file, giving the agent visual understanding of the screen
+
+This allows the agent to see what's on screen, identify UI elements, read text, and make informed decisions about where to click or what to type — without relying solely on OCR.
 
 ## Safety
 

@@ -213,9 +213,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    # Ensure Ctrl+C always causes a prompt exit — even when Python's default
-    # SIGINT handler is overridden or blocked by child processes.
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
+    # Restore the default SIGINT handler so Ctrl+C raises KeyboardInterrupt.
+    # This is important because agent.py's cleanup code (killing the child
+    # process tree) relies on catching KeyboardInterrupt — a custom handler
+    # that calls sys.exit() would raise SystemExit instead, bypassing cleanup.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
 
     parser = _build_parser()
     args = parser.parse_args()

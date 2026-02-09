@@ -42,6 +42,14 @@ pip3 install --user --break-system-packages "pyobjc-framework-Vision>=10.0"
 
 The other PyObjC packages (`Quartz`, `AppKit`, `ApplicationServices`) are typically already present from `pyobjc-framework-Quartz` (pulled in by PyAutoGUI).
 
+# Ctrl-C / SIGINT handling
+
+Do **not** install a custom `signal.signal(signal.SIGINT, ...)` handler that calls `sys.exit()`. The agent subprocess cleanup in `agent.py` relies on catching `KeyboardInterrupt` — if the handler raises `SystemExit` instead, the `except KeyboardInterrupt` block is bypassed and the child `claude` process is never killed, leaving an orphaned process that makes the terminal appear stuck.
+
+The correct setup (already in `main.py`) is `signal.signal(signal.SIGINT, signal.default_int_handler)` which raises `KeyboardInterrupt`. The `finally` block in `run_agent()` guarantees the child process tree is killed on any exit path.
+
+Also: prefer `proc.stdout.readline()` in a `while` loop over `for line in proc.stdout` — the iterator form uses an internal read-ahead buffer that can resist signal interruption on some platforms.
+
 # Use claude CLI tool
 
 If you need to call an agent, just use the Claude CLI that is already installed and configured.

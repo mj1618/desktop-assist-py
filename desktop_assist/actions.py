@@ -206,9 +206,43 @@ def scroll(clicks: int, x: int | None = None, y: int | None = None) -> None:
 # --- Keyboard helpers --------------------------------------------------------
 
 def type_text(text: str, interval: float = 0.03) -> None:
-    """Type *text* character by character."""
+    """Type *text* character by character.
+
+    Falls back to clipboard paste for non-ASCII characters (accented
+    letters, CJK, emoji, etc.) since ``pyautogui.typewrite`` only
+    supports basic ASCII.
+    """
     _ensure_accessibility()
-    pyautogui.typewrite(text, interval=interval)
+    if all(ord(c) < 128 for c in text):
+        pyautogui.typewrite(text, interval=interval)
+    else:
+        type_unicode(text)
+
+
+def type_unicode(text: str) -> None:
+    """Type arbitrary text including Unicode by pasting from clipboard.
+
+    Works for all characters including accented letters, CJK, emoji, etc.
+    Temporarily uses the system clipboard, restoring the previous contents
+    afterward.
+    """
+    import time
+
+    from desktop_assist.clipboard import get_clipboard, set_clipboard
+
+    _ensure_accessibility()
+
+    original = get_clipboard()
+    try:
+        set_clipboard(text)
+        time.sleep(0.05)
+        if sys.platform == "darwin":
+            hotkey("command", "v")
+        else:
+            hotkey("ctrl", "v")
+    finally:
+        time.sleep(0.1)
+        set_clipboard(original)
 
 
 def press(key: str) -> None:

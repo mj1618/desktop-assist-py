@@ -39,8 +39,10 @@ def _make_fake_popen(stdout_lines: list[str], returncode: int = 0):
         # Attach a stdout iterable and a stderr with .read()
         proc.stdout = io.StringIO("\n".join(stdout_lines) + "\n")  # type: ignore[assignment]
         proc.stderr = io.StringIO("")  # type: ignore[assignment]
-        proc.wait = lambda: None  # type: ignore[assignment]
+        proc.wait = lambda **kw: None  # type: ignore[assignment]
         proc.kill = lambda: None  # type: ignore[assignment]
+        proc.poll = lambda: returncode  # type: ignore[assignment]
+        proc.pid = -1  # type: ignore[assignment]
         proc.returncode = returncode
         return proc
 
