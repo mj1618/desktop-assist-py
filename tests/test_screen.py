@@ -386,9 +386,9 @@ class TestSaveScreenshotWithGrid:
         monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
 
         out = tmp_path / "grid.png"
-        result = screen.save_screenshot_with_grid(str(out))
-        assert result.exists()
-        assert result == out.resolve()
+        result_path, spacing = screen.save_screenshot_with_grid(str(out))
+        assert result_path.exists()
+        assert result_path == out.resolve()
 
     def test_output_dimensions_match_input(self, monkeypatch, tmp_path):
         fake_img = _make_image(300, 400, (64, 64, 64))
@@ -418,8 +418,8 @@ class TestSaveScreenshotWithGrid:
 
         out = tmp_path / "grid.png"
         # Should not raise with different spacing
-        result = screen.save_screenshot_with_grid(str(out), grid_spacing=50)
-        assert result.exists()
+        result_path, spacing = screen.save_screenshot_with_grid(str(out), grid_spacing=50)
+        assert result_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -650,3 +650,177 @@ class TestScreenshotWhenStable:
         )
         # All calls to take_screenshot should include the region
         assert all(r == (10, 20, 30, 40) for r in captured_regions)
+
+
+# ---------------------------------------------------------------------------
+# downscale_image
+# ---------------------------------------------------------------------------
+
+
+class TestDownscaleImage:
+    def test_reduces_width_when_above_threshold(self):
+        img = _make_image(3840, 2160)
+        result = screen.downscale_image(img, max_width=1920)
+        assert result.width == 1920
+        assert result.height == 1080  # proportional
+
+    def test_noop_when_below_threshold(self):
+        img = _make_image(800, 600)
+        result = screen.downscale_image(img, max_width=1920)
+        assert result is img  # same object, not a copy
+
+    def test_noop_when_exactly_at_threshold(self):
+        img = _make_image(1920, 1080)
+        result = screen.downscale_image(img, max_width=1920)
+        assert result is img
+
+    def test_custom_max_width(self):
+        img = _make_image(4000, 2000)
+        result = screen.downscale_image(img, max_width=1000)
+        assert result.width == 1000
+        assert result.height == 500
+
+
+# ---------------------------------------------------------------------------
+# save_screenshot with max_width
+# ---------------------------------------------------------------------------
+
+
+class TestSaveScreenshotDownscale:
+    def test_default_max_width_downscales(self, monkeypatch, tmp_path):
+        """Retina-sized capture is downscaled to <= 1920."""
+        fake_img = _make_image(3456, 2234)
+        monkeypatch.setattr(screen.pyautogui, "screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "screen.png"
+        screen.save_screenshot(str(out))
+        saved = Image.open(out)
+        assert saved.width == 1920
+        # Height should be proportional
+        expected_h = int(2234 * (1920 / 3456))
+        assert saved.height == expected_h
+
+    def test_max_width_none_preserves_full_resolution(self, monkeypatch, tmp_path):
+        fake_img = _make_image(3456, 2234)
+        monkeypatch.setattr(screen.pyautogui, "screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "screen.png"
+        screen.save_screenshot(str(out), max_width=None)
+        saved = Image.open(out)
+        assert saved.size == (3456, 2234)
+
+    def test_small_image_not_upscaled(self, monkeypatch, tmp_path):
+        """Images below max_width are saved as-is."""
+        fake_img = _make_image(800, 600)
+        monkeypatch.setattr(screen.pyautogui, "screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "screen.png"
+        screen.save_screenshot(str(out))
+        saved = Image.open(out)
+        assert saved.size == (800, 600)
+
+
+# ---------------------------------------------------------------------------
+# save_screenshot_with_grid with max_width
+# ---------------------------------------------------------------------------
+
+
+class TestSaveScreenshotWithGridDownscale:
+    def test_grid_spacing_scales_proportionally(self, monkeypatch, tmp_path):
+        """When a 3840px image is downscaled to 1920, grid_spacing=100 becomes 50."""
+        fake_img = _make_image(3840, 2160)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        _, effective_spacing = screen.save_screenshot_with_grid(
+            str(out), grid_spacing=100, max_width=1920,
+        )
+        assert effective_spacing == 50
+
+        saved = Image.open(out)
+        assert saved.width == 1920
+
+    def test_no_downscale_preserves_spacing(self, monkeypatch, tmp_path):
+        """When image is below max_width, grid_spacing is unchanged."""
+        fake_img = _make_image(800, 600)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        _, effective_spacing = screen.save_screenshot_with_grid(
+            str(out), grid_spacing=100,
+        )
+        assert effective_spacing == 100
+
+    def test_max_width_none_preserves_original(self, monkeypatch, tmp_path):
+        fake_img = _make_image(3840, 2160)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        _, effective_spacing = screen.save_screenshot_with_grid(
+            str(out), grid_spacing=100, max_width=None,
+        )
+        assert effective_spacing == 100
+        saved = Image.open(out)
+        assert saved.width == 3840
+
+    def test_grid_to_coords_matches_downscaled_grid(self, monkeypatch, tmp_path):
+        """grid_to_coords with effective_spacing produces correct coordinates."""
+        fake_img = _make_image(3840, 2160)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        _, effective_spacing = screen.save_screenshot_with_grid(
+            str(out), grid_spacing=100, max_width=1920,
+        )
+        # A1 center should be at (spacing/2, spacing/2)
+        x, y = screen.grid_to_coords("A1", grid_spacing=effective_spacing)
+        assert x == effective_spacing // 2
+        assert y == effective_spacing // 2
+
+
+# ---------------------------------------------------------------------------
+# screenshot_when_stable with max_width
+# ---------------------------------------------------------------------------
+
+
+class TestScreenshotWhenStableDownscale:
+    def test_passes_max_width_through(self, monkeypatch, tmp_path):
+        """max_width is forwarded to save_screenshot."""
+        fake_img = _make_image(3456, 2234)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img.copy())
+        monkeypatch.setattr(screen.pyautogui, "screenshot", lambda region=None: fake_img)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            return call_count * 0.3
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        out = tmp_path / "stable.png"
+        screen.screenshot_when_stable(str(out), timeout=5.0, max_width=1920)
+        saved = Image.open(out)
+        assert saved.width == 1920
+
+    def test_max_width_none_preserves(self, monkeypatch, tmp_path):
+        fake_img = _make_image(3456, 2234)
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img.copy())
+        monkeypatch.setattr(screen.pyautogui, "screenshot", lambda region=None: fake_img)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            return call_count * 0.3
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        out = tmp_path / "stable.png"
+        screen.screenshot_when_stable(str(out), timeout=5.0, max_width=None)
+        saved = Image.open(out)
+        assert saved.size == (3456, 2234)

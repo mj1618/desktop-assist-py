@@ -22,16 +22,37 @@ def take_screenshot(region: tuple[int, int, int, int] | None = None) -> Image.Im
     return pyautogui.screenshot(region=region)
 
 
+def downscale_image(img: Image.Image, max_width: int = 1920) -> Image.Image:
+    """Downscale *img* proportionally so its width does not exceed *max_width*.
+
+    Uses LANCZOS resampling for high-quality downscaling.
+    Returns the image unchanged if it is already within the limit.
+    """
+    if img.width <= max_width:
+        return img
+    ratio = max_width / img.width
+    new_height = int(img.height * ratio)
+    return img.resize((max_width, new_height), Image.LANCZOS)
+
+
 def save_screenshot(
     path: str | Path,
     region: tuple[int, int, int, int] | None = None,
+    max_width: int | None = 1920,
 ) -> Path:
     """Capture the screen and save it to *path*.
+
+    When *max_width* is set (default 1920), the screenshot is downscaled
+    proportionally if its width exceeds the limit.  Pass ``max_width=None``
+    to save at full (Retina) resolution.
 
     Returns the resolved :class:`~pathlib.Path` of the saved file.
     """
     path = Path(path)
-    take_screenshot(region=region).save(path)
+    img = take_screenshot(region=region)
+    if max_width is not None:
+        img = downscale_image(img, max_width)
+    img.save(path)
     return path.resolve()
 
 
@@ -233,11 +254,14 @@ def screenshot_when_stable(
     timeout: float = 10.0,
     stability_period: float = 0.5,
     threshold: float = 0.005,
+    max_width: int | None = 1920,
 ) -> Path:
     """Wait for the screen to stabilize, then save a screenshot.
 
     Combines wait_until_stable() + save_screenshot() into the most common
     agent pattern: "wait for the screen to be ready, then capture it."
+
+    *max_width* is forwarded to ``save_screenshot()`` — see its docstring.
 
     Returns the path to the saved screenshot.  If the screen does not
     stabilize within *timeout*, a screenshot is saved anyway (of whatever
@@ -249,7 +273,7 @@ def screenshot_when_stable(
         stability_period=stability_period,
         threshold=threshold,
     )
-    return save_screenshot(path, region=region)
+    return save_screenshot(path, region=region, max_width=max_width)
 
 
 def _col_to_label(col: int) -> str:
@@ -319,15 +343,34 @@ def save_screenshot_with_grid(
     region: tuple[int, int, int, int] | None = None,
     grid_spacing: int = 100,
     label_size: int = 12,
-) -> Path:
+    max_width: int | None = 1920,
+) -> tuple[Path, int]:
     """Capture a screenshot and draw a labeled coordinate grid overlay.
 
     The grid uses alphanumeric labels (columns A-Z, rows 1-N) matching
     spreadsheet conventions. Use ``grid_to_coords()`` to convert a label
     like ``"C5"`` to pixel coordinates for clicking.
+
+    When *max_width* is set (default 1920), the screenshot is downscaled
+    **before** the grid is drawn so that labels are legible at the output
+    resolution.  The *grid_spacing* is scaled proportionally when
+    downscaling occurs.
+
+    Returns ``(path, effective_grid_spacing)`` — the caller (or agent
+    system prompt) should pass ``effective_grid_spacing`` to
+    ``grid_to_coords()`` so coordinates match the saved image.
     """
     path = Path(path)
-    img = take_screenshot(region=region).convert("RGBA")
+    img = take_screenshot(region=region)
+
+    # Downscale before drawing the grid so labels are rendered at output size
+    effective_spacing = grid_spacing
+    if max_width is not None and img.width > max_width:
+        ratio = max_width / img.width
+        effective_spacing = max(1, int(grid_spacing * ratio))
+        img = downscale_image(img, max_width)
+
+    img = img.convert("RGBA")
     width, height = img.size
 
     # Create a transparent overlay for the grid lines and labels
@@ -347,22 +390,22 @@ def save_screenshot_with_grid(
     line_color = (200, 200, 200, 80)  # semi-transparent gray
 
     # Draw vertical lines
-    for x in range(grid_spacing, width, grid_spacing):
+    for x in range(effective_spacing, width, effective_spacing):
         draw.line([(x, 0), (x, height)], fill=line_color, width=1)
 
     # Draw horizontal lines
-    for y in range(grid_spacing, height, grid_spacing):
+    for y in range(effective_spacing, height, effective_spacing):
         draw.line([(0, y), (width, y)], fill=line_color, width=1)
 
     # Draw labels at cell centers
-    cols = (width + grid_spacing - 1) // grid_spacing
-    rows = (height + grid_spacing - 1) // grid_spacing
+    cols = (width + effective_spacing - 1) // effective_spacing
+    rows = (height + effective_spacing - 1) // effective_spacing
 
     for row_i in range(rows):
         for col_i in range(cols):
             label_text = f"{_col_to_label(col_i)}{row_i + 1}"
-            cx = col_i * grid_spacing + grid_spacing // 2
-            cy = row_i * grid_spacing + grid_spacing // 2
+            cx = col_i * effective_spacing + effective_spacing // 2
+            cy = row_i * effective_spacing + effective_spacing // 2
 
             # Measure text for background pill
             bbox = draw.textbbox((0, 0), label_text, font=font)
@@ -389,4 +432,4 @@ def save_screenshot_with_grid(
     # Composite the overlay onto the screenshot
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(path)
-    return path.resolve()
+    return path.resolve(), effective_spacing

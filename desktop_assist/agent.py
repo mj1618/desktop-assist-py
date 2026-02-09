@@ -43,12 +43,15 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     For precise clicking, use save_screenshot_with_grid() instead of save_screenshot().
     This draws a labeled grid overlay (columns A-Z, rows 1-N) on the screenshot.
     Use grid_to_coords() to convert a grid cell label to exact pixel coordinates.
+    save_screenshot_with_grid() returns (path, grid_spacing) — pass that
+    grid_spacing to grid_to_coords() so coordinates match the saved image.
 
     Example — click a button visible in grid cell D3:
 
         Step 1 (Bash): python3 -c "
     from desktop_assist.screen import save_screenshot_with_grid
-    print(save_screenshot_with_grid('/tmp/screen.png'))
+    path, spacing = save_screenshot_with_grid('/tmp/screen.png')
+    print(f'{{path}} grid_spacing={{spacing}}')
     "
 
         Step 2 (Read): Use the Read tool on /tmp/screen.png to see the grid overlay
@@ -56,7 +59,7 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
         Step 3 (Bash): python3 -c "
     from desktop_assist.screen import grid_to_coords
     from desktop_assist.actions import click
-    x, y = grid_to_coords('D3')
+    x, y = grid_to_coords('D3', grid_spacing=SPACING)  # use the spacing from Step 1
     click(x, y)
     "
 
