@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pyautogui",
     "pillow",
+    "pygetwindow>=0.0.9",
 ]
 
 [project.optional-dependencies]

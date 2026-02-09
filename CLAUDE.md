@@ -1,0 +1,15 @@
+# Keep CLAUDE.md updated
+
+If you hit an issue that is likely to trip-up other agents, write a helpful message to CLAUDE.md
+
+# Keep README.md updated
+
+Keep the readme updated as you implement new features. It should be a simple guide on how to use this repo.
+
+# pygetwindow on macOS
+
+`pygetwindow`'s macOS support is incomplete — `MacOSWindow` methods all raise `NotImplementedError` and `getAllWindows()` doesn't exist. The `desktop_assist/windows.py` module works around this by using Quartz CGWindowList (for listing), AppKit NSRunningApplication (for focus), and AppleScript via `osascript` (for move/resize) directly on macOS. The pygetwindow fallback path is only used on Windows/Linux.
+
+# Use claude CLI tool
+
+If you need to call an agent, just use the Claude CLI that is already installed and configured.

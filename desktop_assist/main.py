@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import time
-
-from desktop_assist.screen import take_screenshot, save_screenshot
-from desktop_assist.actions import click, type_text, hotkey
+from desktop_assist.screen import save_screenshot, take_screenshot
+from desktop_assist.windows import get_active_window, list_windows
 
 
 def demo() -> None:
@@ -20,6 +18,18 @@ def demo() -> None:
 
     save_screenshot("demo_screenshot.png")
     print("Screenshot saved to demo_screenshot.png")
+
+    # Window listing
+    wins = list_windows()
+    print(f"\nOpen windows ({len(wins)}):")
+    for w in wins[:5]:
+        print(f"  {w['title']}  ({w['width']}x{w['height']} at {w['left']},{w['top']})")
+    if len(wins) > 5:
+        print(f"  ... and {len(wins) - 5} more")
+
+    active = get_active_window()
+    if active:
+        print(f"\nActive window: {active['title']}")
 
 
 def main() -> None:
