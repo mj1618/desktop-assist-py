@@ -22,6 +22,7 @@ desktop-assist
 desktop_assist/
 ├── __init__.py    # package metadata
 ├── actions.py     # mouse & keyboard helpers (click, type, hotkey, …)
+├── clipboard.py   # clipboard read/write and copy/paste helpers
 ├── screen.py      # screen capture & image-location helpers
 ├── windows.py     # window discovery, focus, move & resize
 └── main.py        # CLI entry point / demo
@@ -32,6 +33,7 @@ desktop_assist/
 | Module | Purpose |
 |--------|---------|
 | `actions` | Thin wrappers around PyAutoGUI mouse/keyboard functions with sane defaults (`PAUSE`, `FAILSAFE`). |
+| `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
 | `screen` | Screenshot capture, save-to-disk, and `locate_on_screen` for image-based element detection. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
 | `main` | Entry point that wires everything together. Run via `desktop-assist` after install. |
