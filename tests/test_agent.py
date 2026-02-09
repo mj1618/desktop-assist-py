@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import threading
+import time
 
 from desktop_assist import agent
 
@@ -268,3 +270,132 @@ class TestFmtTokens:
 
     def test_zero(self):
         assert agent._fmt_tokens(0) == "0"
+
+
+# ── Helpers for timeout tests ──────────────────────────────────────────
+
+
+def _make_slow_popen(delay: float, stdout_lines: list[str] | None = None):
+    """Return a Popen factory that blocks on readline for *delay* seconds.
+
+    This simulates a subprocess that hangs or takes a long time.  When the
+    proc is "killed" (via kill()), the blocking readline returns EOF
+    immediately, mimicking the real pipe behaviour when a child is terminated.
+    """
+
+    class SlowStdout:
+        """File-like object whose readline() blocks until killed or delay elapses."""
+
+        def __init__(self, lines: list[str], delay: float, killed: threading.Event):
+            self._lines = iter(lines)
+            self._delay = delay
+            self._killed = killed
+            self._done_delay = False
+
+        def readline(self) -> str:
+            if not self._done_delay:
+                self._done_delay = True
+                # Wait until delay elapses OR killed is set (whichever first)
+                self._killed.wait(timeout=self._delay)
+                if self._killed.is_set():
+                    return ""  # EOF — process was killed
+            try:
+                return next(self._lines) + "\n"
+            except StopIteration:
+                return ""
+
+        def read(self) -> str:
+            return ""
+
+    class FakeProc:
+        def __init__(self, lines: list[str], delay: float):
+            self._killed = threading.Event()
+            self.stdout = SlowStdout(lines, delay, self._killed)
+            self.stderr = io.StringIO("")
+            self.pid = -1
+            self.returncode = 0
+
+        def poll(self):
+            if self._killed.is_set():
+                return self.returncode
+            return None  # process still running
+
+        def wait(self, **kw):
+            pass
+
+        def kill(self):
+            self._killed.set()
+
+    def factory(cmd, **kwargs):
+        return FakeProc(stdout_lines or [], delay)
+
+    return factory
+
+
+class TestTimeout:
+    def test_dry_run_ignores_timeout(self):
+        result = agent.run_agent("test prompt", dry_run=True, timeout=5.0)
+        assert result.startswith("[dry-run]")
+        # timeout is not part of the CLI command, it's handled in Python
+        assert "test prompt" in result
+
+    def test_timeout_triggers_on_slow_subprocess(self, monkeypatch):
+        """A subprocess that blocks longer than the timeout should be killed."""
+        # Subprocess blocks for 10s, but timeout is 1s
+        monkeypatch.setattr(
+            agent.subprocess,
+            "Popen",
+            _make_slow_popen(delay=10.0),
+        )
+        # Monkeypatch _kill_process_tree to call proc.kill() since the fake
+        # proc has pid=-1 and os.killpg would not work.
+        monkeypatch.setattr(
+            agent,
+            "_kill_process_tree",
+            lambda proc: proc.kill(),
+        )
+
+        start = time.monotonic()
+        result = agent.run_agent("do something slow", timeout=1.0)
+        elapsed = time.monotonic() - start
+
+        assert result.startswith("[timeout]")
+        assert "1s" in result  # "exceeded 1s wall-clock limit"
+        # Should have terminated in ~1s, not ~10s
+        assert elapsed < 5.0
+
+    def test_no_timeout_when_fast(self, monkeypatch):
+        """A subprocess that completes quickly should not be affected by a generous timeout."""
+        response = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Completed quickly.",
+        })
+
+        monkeypatch.setattr(
+            agent.subprocess,
+            "Popen",
+            _make_fake_popen([response]),
+        )
+
+        result = agent.run_agent("quick task", timeout=60.0)
+        assert result == "Completed quickly."
+
+    def test_timeout_none_means_no_limit(self, monkeypatch):
+        """timeout=None (default) should not impose any time limit."""
+        response = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Done!",
+        })
+
+        monkeypatch.setattr(
+            agent.subprocess,
+            "Popen",
+            _make_fake_popen([response]),
+        )
+
+        result = agent.run_agent("test", timeout=None)
+        assert result == "Done!"

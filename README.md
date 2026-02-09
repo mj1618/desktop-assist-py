@@ -50,6 +50,9 @@ desktop-assist --max-turns 10 "open Safari"
 
 # increase budget for complex tasks (default: $1.00)
 desktop-assist --max-budget 5.0 "fill out the expense report form"
+
+# enforce a wall-clock time limit (exits with code 124 on timeout)
+desktop-assist --timeout 60 "open Safari and search for flights"
 ```
 
 ### Live feedback

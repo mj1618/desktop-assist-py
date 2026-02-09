@@ -407,6 +407,7 @@ def run_agent(
     resume_from: str | None = None,
     max_budget: float = 1.0,
     instructions: str | None = None,
+    timeout: float | None = None,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -432,6 +433,8 @@ def run_agent(
         Maximum spend in USD for the agent run (default 1.0).
     instructions:
         Custom instructions to append to the system prompt.
+    timeout:
+        Maximum wall-clock time in seconds for the agent run. None means no limit.
 
     Returns
     -------
@@ -525,6 +528,22 @@ def run_agent(
     stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
     stderr_thread.start()
 
+    # ── Watchdog thread for wall-clock timeout ───────────────────────────
+    timed_out = threading.Event()
+    watchdog_cancel = threading.Event()  # set by main thread to cancel watchdog
+
+    def _watchdog() -> None:
+        assert timeout is not None  # only started when timeout is set
+        if not watchdog_cancel.wait(timeout):
+            # Timeout expired (wait returned False — event was not set)
+            timed_out.set()
+            if proc.poll() is None:
+                _kill_process_tree(proc)
+
+    if timeout is not None:
+        watchdog = threading.Thread(target=_watchdog, daemon=True)
+        watchdog.start()
+
     interrupted = False
     try:
         # Use explicit readline() instead of ``for line in proc.stdout``
@@ -559,6 +578,24 @@ def run_agent(
 
     if interrupted:
         return "[error] Agent interrupted by user."
+
+    # Cancel the watchdog so it cannot fire after the process exits normally.
+    watchdog_cancel.set()
+
+    # ── Handle timeout ──────────────────────────────────────────────────
+    if timed_out.is_set():
+        elapsed = time.monotonic() - agent_start
+        steps = step_counter[0]
+        _log(
+            f"\n{_c(_YELLOW, 'timeout')} — agent exceeded "
+            f"{timeout:.0f}s wall-clock limit "
+            f"({steps} tool call{'s' if steps != 1 else ''}, {elapsed:.1f}s)"
+        )
+        if session_logger is not None:
+            session_logger.log_done(steps, elapsed, "[timeout]")
+            session_logger.close()
+            _log(f"  session log: {_c(_DIM, str(session_logger.path))}")
+        return f"[timeout] Agent exceeded {timeout:.0f}s wall-clock limit."
 
     proc.wait()
     stderr_thread.join(timeout=5)

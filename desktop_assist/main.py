@@ -248,6 +248,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable auto-loading .desktop-assist.md from the current directory.",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Maximum wall-clock time in seconds for the agent run. No limit by default.",
+    )
     return parser
 
 
@@ -361,8 +368,11 @@ def main() -> None:
             resume_from=resume_from,
             max_budget=args.max_budget,
             instructions=custom_instructions,
+            timeout=args.timeout,
         )
         print(result)
+        if result.startswith("[timeout]"):
+            sys.exit(124)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         sys.exit(130)
