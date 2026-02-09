@@ -209,6 +209,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Replay a session log to stderr.",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        metavar="SESSION_ID",
+        default=None,
+        help="Resume a previous interrupted session by ID (or 'last' for most recent).",
+    )
     return parser
 
 
@@ -234,7 +241,30 @@ def main() -> None:
         _replay_session(args.replay, args.log_dir)
         return
 
-    prompt = " ".join(args.prompt)
+    # Handle --resume: build an augmented prompt from a previous session log
+    resume_from: str | None = None
+    if args.resume:
+        from desktop_assist.logging import build_resume_prompt, list_sessions
+
+        # Support --resume last as shorthand for the most recent session
+        if args.resume == "last":
+            sessions = list_sessions(args.log_dir)
+            if not sessions:
+                print("No previous sessions found.", file=sys.stderr)
+                sys.exit(1)
+            args.resume = str(sessions[0]["id"])
+
+        try:
+            prompt, saved_model = build_resume_prompt(args.resume, args.log_dir)
+        except FileNotFoundError:
+            print(f"Session not found: {args.resume}", file=sys.stderr)
+            sys.exit(1)
+
+        resume_from = args.resume
+        if not args.model and saved_model:
+            args.model = saved_model
+    else:
+        prompt = " ".join(args.prompt)
 
     if args.demo or not prompt:
         print("desktop-assist is ready.")
@@ -256,6 +286,7 @@ def main() -> None:
             model=args.model,
             log=not args.no_log,
             log_dir=args.log_dir,
+            resume_from=resume_from,
         )
         print(result)
     except KeyboardInterrupt:

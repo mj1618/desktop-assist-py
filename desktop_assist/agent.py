@@ -373,6 +373,7 @@ def run_agent(
     model: str | None = None,
     log: bool = True,
     log_dir: str | None = None,
+    resume_from: str | None = None,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -392,6 +393,8 @@ def run_agent(
         Persist a structured JSONL session log to disk (default True).
     log_dir:
         Override the default session log directory.
+    resume_from:
+        Session ID of a previous session being resumed (for log linkage).
 
     Returns
     -------
@@ -404,6 +407,8 @@ def run_agent(
     if log and not dry_run:
         session_logger = SessionLogger(session_dir=log_dir)
         session_logger.log_start(prompt, model=model, max_turns=max_turns)
+        if resume_from:
+            session_logger.log_resume(resume_from)
 
     system_prompt = _build_system_prompt()
 

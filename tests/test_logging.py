@@ -8,6 +8,7 @@ import pytest
 
 from desktop_assist.logging import (
     SessionLogger,
+    build_resume_prompt,
     get_session_dir,
     get_session_path,
     list_sessions,
@@ -180,6 +181,108 @@ class TestReplaySession:
     def test_replay_missing_session(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             replay_session("nonexistent", str(tmp_path))
+
+
+class TestLogResume:
+    def test_log_resume_writes_event(self, tmp_path):
+        with SessionLogger(session_dir=str(tmp_path)) as logger:
+            logger.log_start("test", model="sonnet", max_turns=10)
+            logger.log_resume("20250101_100000_aaaa1111")
+
+        log_files = list(tmp_path.glob("*.jsonl"))
+        events = []
+        with open(log_files[0]) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+
+        assert len(events) == 2
+        assert events[1]["event"] == "resume"
+        assert events[1]["previous_session"] == "20250101_100000_aaaa1111"
+
+
+class TestBuildResumePrompt:
+    def _write_session(self, tmp_path, session_id, events):
+        """Helper to write a fake session log file."""
+        p = tmp_path / f"{session_id}.jsonl"
+        lines = [json.dumps(e) for e in events]
+        p.write_text("\n".join(lines) + "\n")
+        return p
+
+    def test_completed_session(self, tmp_path):
+        self._write_session(tmp_path, "20250101_100000_aaaa1111", [
+            {"event": "start", "prompt": "Open Safari", "model": "sonnet"},
+            {"event": "tool_call", "step": 1, "tool": "Bash", "command": "open -a Safari"},
+            {"event": "tool_result", "step": 1, "is_error": False, "output_preview": "ok"},
+            {"event": "done", "steps": 1, "elapsed_s": 5.0, "result_preview": "Done!"},
+        ])
+
+        prompt, model = build_resume_prompt("20250101_100000_aaaa1111", str(tmp_path))
+        assert "RESUMING PREVIOUS SESSION" in prompt
+        assert "status: completed" in prompt
+        assert "Original task: Open Safari" in prompt
+        assert "Bash: open -a Safari" in prompt
+        assert "-> OK" in prompt
+        assert "Do NOT repeat steps" in prompt
+        assert model == "sonnet"
+
+    def test_interrupted_session(self, tmp_path):
+        self._write_session(tmp_path, "20250101_100000_bbbb2222", [
+            {"event": "start", "prompt": "Search flights", "model": "opus"},
+            {"event": "tool_call", "step": 1, "tool": "Bash", "command": "echo step1"},
+            {"event": "tool_result", "step": 1, "is_error": False, "output_preview": "ok"},
+            # No "done" event — session was interrupted
+        ])
+
+        prompt, model = build_resume_prompt("20250101_100000_bbbb2222", str(tmp_path))
+        assert "status: interrupted" in prompt
+        assert "Original task: Search flights" in prompt
+        assert model == "opus"
+
+    def test_error_in_session(self, tmp_path):
+        self._write_session(tmp_path, "20250101_100000_cccc3333", [
+            {"event": "start", "prompt": "Do stuff", "model": None},
+            {"event": "tool_call", "step": 1, "tool": "Bash", "command": "failing_cmd"},
+            {"event": "tool_result", "step": 1, "is_error": True, "output_preview": "not found"},
+        ])
+
+        prompt, model = build_resume_prompt("20250101_100000_cccc3333", str(tmp_path))
+        assert "-> ERROR" in prompt
+        assert model is None
+
+    def test_missing_session_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            build_resume_prompt("nonexistent", str(tmp_path))
+
+    def test_no_model_returns_none(self, tmp_path):
+        self._write_session(tmp_path, "20250101_100000_dddd4444", [
+            {"event": "start", "prompt": "no model set"},
+            {"event": "done", "steps": 0, "elapsed_s": 0.0},
+        ])
+
+        prompt, model = build_resume_prompt("20250101_100000_dddd4444", str(tmp_path))
+        assert model is None
+        assert "status: completed" in prompt
+
+    def test_truncates_long_action_list(self, tmp_path):
+        """Only the last 30 action lines are included."""
+        events = [{"event": "start", "prompt": "lots of steps", "model": "sonnet"}]
+        for i in range(1, 25):
+            events.append({"event": "tool_call", "step": i, "tool": "Bash", "command": f"cmd_{i}"})
+            events.append({"event": "tool_result", "step": i, "is_error": False})
+
+        self._write_session(tmp_path, "20250101_100000_eeee5555", events)
+
+        prompt, _ = build_resume_prompt("20250101_100000_eeee5555", str(tmp_path))
+        # The prompt should still contain action info but be bounded
+        assert "RESUMING PREVIOUS SESSION" in prompt
+        # Should not contain the very first action (it would be trimmed)
+        lines = [
+            line for line in prompt.split("\n")
+            if line.strip().startswith("- [") or line.strip().startswith("-> ")
+        ]
+        assert len(lines) <= 30
 
 
 class TestAgentIntegrationNoLog:

@@ -58,6 +58,9 @@ class SessionLogger:
             max_turns=max_turns,
         )
 
+    def log_resume(self, previous_session_id: str) -> None:
+        self._write(event="resume", previous_session=previous_session_id)
+
     def log_tool_call(
         self, tool_name: str, tool_id: str, command: str | None = None
     ) -> None:
@@ -169,3 +172,49 @@ def replay_session(
                 continue
             events.append(json.loads(raw_line))
     return events
+
+
+def build_resume_prompt(
+    session_id: str, session_dir: str | None = None
+) -> tuple[str, str | None]:
+    """Build a resume prompt from a previous session log.
+
+    Returns (augmented_prompt, original_model).
+    Raises FileNotFoundError if the session log does not exist.
+    """
+    events = replay_session(session_id, session_dir)
+
+    # Single pass: extract start info and summarise actions
+    original_prompt = ""
+    model: str | None = None
+    action_summaries: list[str] = []
+    last_status = "interrupted"
+    for evt in events:
+        event_type = evt.get("event")
+        if event_type == "start":
+            original_prompt = str(evt.get("prompt", ""))
+            model = evt.get("model")  # type: ignore[assignment]
+        elif event_type == "tool_call":
+            tool = evt.get("tool", "?")
+            cmd = evt.get("command", "")
+            action_summaries.append(f"  - [{evt.get('step')}] {tool}: {cmd}")
+        elif event_type == "tool_result":
+            status = "ERROR" if evt.get("is_error") else "OK"
+            action_summaries.append(f"    -> {status}")
+        elif event_type == "done":
+            last_status = "completed"
+
+    # Keep the last 30 lines to stay within context limits
+    actions_text = "\n".join(action_summaries[-30:])
+
+    augmented = (
+        f"RESUMING PREVIOUS SESSION (status: {last_status}).\n"
+        f"Original task: {original_prompt}\n\n"
+        f"The previous attempt performed these actions:\n{actions_text}\n\n"
+        f"Continue from where the previous session left off. "
+        f"Do NOT repeat steps that already succeeded. "
+        f"Start by taking a screenshot to see the current screen state, "
+        f"then continue working toward completing the original task."
+    )
+
+    return augmented, model
