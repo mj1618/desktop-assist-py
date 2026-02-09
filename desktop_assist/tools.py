@@ -13,6 +13,7 @@ from desktop_assist import (
     launcher,
     notifications,
     ocr,
+    processes,
     screen,
     windows,
 )
@@ -27,6 +28,7 @@ _MODULES = [
     notifications,
     filesystem,
     ocr,
+    processes,
 ]
 
 
