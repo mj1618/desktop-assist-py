@@ -2,3 +2,6 @@ pyautogui
 pillow
 pygetwindow>=0.0.9
 pyperclip>=1.8.0
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
+pyobjc-framework-Vision>=10.0; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10.0; sys_platform == "darwin"

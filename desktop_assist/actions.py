@@ -1,4 +1,11 @@
-"""Mouse and keyboard actions powered by PyAutoGUI."""
+"""Mouse and keyboard actions powered by PyAutoGUI.
+
+On macOS Sequoia (15+), PyAutoGUI's default event source (``None``) causes
+synthetic mouse/keyboard events to be **silently dropped** by the OS.
+This module monkey-patches the PyAutoGUI macOS backend at import time so
+that all Quartz events are created with an explicit ``CGEventSource``,
+which fixes the issue.
+"""
 
 from __future__ import annotations
 
@@ -12,9 +19,120 @@ import pyautogui
 pyautogui.PAUSE = 0.3
 pyautogui.FAILSAFE = True  # move mouse to top-left corner to abort
 
+# ── macOS Sequoia CGEventSource fix ──────────────────────────────────────
+# PyAutoGUI's _pyautogui_osx backend passes ``None`` as the event source to
+# CGEventCreateMouseEvent / CGEventCreateKeyboardEvent.  On macOS 15+
+# (Sequoia) this causes the OS to silently drop every event — no error, the
+# mouse/keyboard simply doesn't react.
+#
+# The fix: create an explicit CGEventSource and monkey-patch the backend
+# functions that create events so they use it instead of None.
+
+_PATCHED = False
+
+
+def _patch_pyautogui_macos() -> None:
+    """Monkey-patch PyAutoGUI's macOS backend to use an explicit event source.
+
+    This must be called before the first mouse/keyboard action.  It is
+    idempotent — calling it more than once is a no-op.
+    """
+    global _PATCHED
+    if _PATCHED or sys.platform != "darwin":
+        return
+    _PATCHED = True
+
+    try:
+        import pyautogui._pyautogui_osx as _osx  # type: ignore[import-untyped]
+        import Quartz
+    except ImportError:
+        return  # not on macOS or pyobjc not installed
+
+    # Create a persistent event source that all events will use.
+    _source = Quartz.CGEventSourceCreate(
+        Quartz.kCGEventSourceStateHIDSystemState,
+    )
+    if _source is None:
+        warnings.warn(
+            "Could not create CGEventSource — PyAutoGUI events may be "
+            "silently dropped on macOS Sequoia.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+
+    # ---- patch _sendMouseEvent -------------------------------------------
+    def _patched_sendMouseEvent(ev, x, y, button):  # type: ignore[no-untyped-def]
+        mouseEvent = Quartz.CGEventCreateMouseEvent(_source, ev, (x, y), button)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, mouseEvent)
+
+    _osx._sendMouseEvent = _patched_sendMouseEvent
+
+    # ---- patch _normalKeyEvent -------------------------------------------
+    def _patched_normalKeyEvent(key, upDown):  # type: ignore[no-untyped-def]
+        assert upDown in ("up", "down"), "upDown argument must be 'up' or 'down'"
+        import time as _time
+
+        try:
+            if pyautogui.isShiftCharacter(key):
+                key_code = _osx.keyboardMapping[key.lower()]
+                event = Quartz.CGEventCreateKeyboardEvent(
+                    _source, _osx.keyboardMapping["shift"], upDown == "down",
+                )
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+                _time.sleep(pyautogui.DARWIN_CATCH_UP_TIME)
+            else:
+                key_code = _osx.keyboardMapping[key]
+
+            event = Quartz.CGEventCreateKeyboardEvent(
+                _source, key_code, upDown == "down",
+            )
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+            _time.sleep(pyautogui.DARWIN_CATCH_UP_TIME)
+        except KeyError:
+            raise RuntimeError("Key %s not implemented." % (key,))
+
+    _osx._normalKeyEvent = _patched_normalKeyEvent
+
+    # ---- patch _specialKeyEvent ------------------------------------------
+    _orig_specialKeyEvent = _osx._specialKeyEvent
+
+    def _patched_specialKeyEvent(key, upDown):  # type: ignore[no-untyped-def]
+        assert upDown in ("up", "down"), "upDown argument must be 'up' or 'down'"
+        try:
+            import AppKit
+        except ImportError:
+            _orig_specialKeyEvent(key, upDown)
+            return
+
+        key_code = _osx.special_key_translate_table[key]
+        create = (
+            AppKit.NSEvent
+            .otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_
+        )
+        ev = create(
+            Quartz.NSSystemDefined,  # type
+            (0, 0),  # location
+            0xA00 if upDown == "down" else 0xB00,  # flags
+            0,  # timestamp
+            0,  # window
+            0,  # ctx
+            8,  # subtype
+            (key_code << 16) | ((0xA if upDown == "down" else 0xB) << 8),  # data1
+            -1,  # data2
+        )
+        Quartz.CGEventPost(0, ev.CGEvent())
+
+    _osx._specialKeyEvent = _patched_specialKeyEvent
+
+
+# Apply the patch at import time so every action benefits.
+_patch_pyautogui_macos()
+
+
 # ── macOS accessibility gate ─────────────────────────────────────────────
 # On macOS, synthetic events are silently dropped without Accessibility
-# permissions.  We check once on first use and raise loudly so the user
+# permissions.  We check once on first use and warn loudly so the user
 # doesn't waste time debugging phantom failures.
 _accessibility_checked = False
 

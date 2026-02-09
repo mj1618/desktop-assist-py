@@ -34,6 +34,85 @@ def _check_permissions() -> None:
         prompt_accessibility()
 
 
+def _list_sessions(log_dir: str | None) -> None:
+    """Print a table of recent sessions."""
+    from desktop_assist.logging import list_sessions
+
+    sessions = list_sessions(log_dir)
+    if not sessions:
+        print("No sessions found.")
+        return
+
+    # header
+    print(f"{'ID':<28}  {'Prompt':<40}  {'Steps':>5}  {'Duration':>8}  {'Status'}")
+    print("-" * 95)
+    for s in sessions:
+        prompt = str(s["prompt"])
+        if len(prompt) > 40:
+            prompt = prompt[:37] + "..."
+        elapsed = s["elapsed_s"]
+        dur = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "?"
+        print(f"{s['id']:<28}  {prompt:<40}  {s['steps']:>5}  {dur:>8}  {s['status']}")
+
+
+def _replay_session(session_id: str, log_dir: str | None) -> None:
+    """Replay a session log to stderr."""
+    from desktop_assist.logging import replay_session
+
+    try:
+        events = replay_session(session_id, log_dir)
+    except FileNotFoundError:
+        print(f"Session not found: {session_id}", file=sys.stderr)
+        sys.exit(1)
+
+    for evt in events:
+        event_type = evt.get("event", "?")
+        ts = evt.get("timestamp", "")
+
+        if event_type == "start":
+            model = evt.get("model")
+            turns = evt.get("max_turns")
+            prompt = evt.get("prompt")
+            print(
+                f"[{ts}] START  prompt={prompt!r}"
+                f"  model={model}  max_turns={turns}",
+                file=sys.stderr,
+            )
+        elif event_type == "tool_call":
+            step = evt.get("step")
+            tool = evt.get("tool")
+            cmd = evt.get("command", "")
+            print(
+                f"[{ts}] TOOL   [{step}] {tool}: {cmd}",
+                file=sys.stderr,
+            )
+        elif event_type == "tool_result":
+            status = "ERROR" if evt.get("is_error") else "OK"
+            elapsed = evt.get("elapsed_s")
+            elapsed_str = f" ({elapsed:.1f}s)" if elapsed is not None else ""
+            preview = evt.get("output_preview", "")
+            print(
+                f"[{ts}]   {status}{elapsed_str} {preview[:120]}",
+                file=sys.stderr,
+            )
+        elif event_type == "text":
+            print(
+                f"[{ts}] TEXT   {evt.get('text', '')[:200]}",
+                file=sys.stderr,
+            )
+        elif event_type == "done":
+            steps = evt.get("steps")
+            el = evt.get("elapsed_s")
+            result = evt.get("result_preview", "")[:120]
+            print(
+                f"[{ts}] DONE   steps={steps}"
+                f"  elapsed={el}s  result={result}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"[{ts}] {event_type}  {evt}", file=sys.stderr)
+
+
 def demo() -> None:
     """Run a quick demo: screenshot, display size, and a sample hotkey."""
     import pyautogui
@@ -107,6 +186,29 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Check whether macOS Accessibility permissions are granted and exit.",
     )
+    parser.add_argument(
+        "--no-log",
+        action="store_true",
+        help="Disable session logging.",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Override the default session log directory (~/.desktop-assist/sessions/).",
+    )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        help="List recent sessions and exit.",
+    )
+    parser.add_argument(
+        "--replay",
+        type=str,
+        metavar="SESSION_ID",
+        default=None,
+        help="Replay a session log to stderr.",
+    )
     return parser
 
 
@@ -120,6 +222,14 @@ def main() -> None:
 
     if args.check_permissions:
         _check_permissions()
+        return
+
+    if args.list_sessions:
+        _list_sessions(args.log_dir)
+        return
+
+    if args.replay:
+        _replay_session(args.replay, args.log_dir)
         return
 
     prompt = " ".join(args.prompt)
@@ -142,6 +252,8 @@ def main() -> None:
             verbose=args.verbose,
             dry_run=args.dry_run,
             model=args.model,
+            log=not args.no_log,
+            log_dir=args.log_dir,
         )
         print(result)
     except KeyboardInterrupt:

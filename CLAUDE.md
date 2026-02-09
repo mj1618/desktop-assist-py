@@ -22,9 +22,25 @@ Keep the readme updated as you implement new features. It should be a simple gui
 
 `pygetwindow`'s macOS support is incomplete — `MacOSWindow` methods all raise `NotImplementedError` and `getAllWindows()` doesn't exist. The `desktop_assist/windows.py` module works around this by using Quartz CGWindowList (for listing), AppKit NSRunningApplication (for focus), and AppleScript via `osascript` (for move/resize) directly on macOS. The pygetwindow fallback path is only used on Windows/Linux.
 
-# macOS Accessibility permissions
+# macOS Sequoia CGEventSource fix
 
-PyAutoGUI sends synthetic mouse/keyboard events via Quartz `CGEventPost`. On macOS these are **silently dropped** unless the terminal app has Accessibility access granted in **System Settings > Privacy & Security > Accessibility**. There is no error — events just don't register. The `desktop_assist/permissions.py` module checks this and `actions.py` warns on first use. Run `desktop-assist --check-permissions` to diagnose.
+PyAutoGUI's macOS backend passes `None` as the event source to `CGEventCreateMouseEvent` / `CGEventCreateKeyboardEvent`. On **macOS 15 Sequoia** this causes the OS to **silently drop every event** — no error, the mouse/keyboard simply doesn't react.
+
+The fix lives in `desktop_assist/actions.py`: at import time it monkey-patches `pyautogui._pyautogui_osx` to create events with an explicit `CGEventSource(kCGEventSourceStateHIDSystemState)` instead of `None`. This is applied automatically when any action function is imported.
+
+The `desktop_assist/permissions.py` module contains a functional accessibility check (actually moves the cursor and verifies) since `AXIsProcessTrusted()` can return `True` even when events are blocked. Run `desktop-assist --check-permissions` to diagnose.
+
+If events still don't work, the terminal app may need Accessibility permission in **System Settings > Privacy & Security > Accessibility**.
+
+# PyObjC Vision dependency for OCR
+
+The OCR module (`desktop_assist/ocr.py`) uses Apple's Vision framework via `pyobjc-framework-Vision`. This package is **not** automatically installed by PyAutoGUI or Homebrew's `python-pyobjc`. If `import Vision` fails with `ModuleNotFoundError`, install it:
+
+```bash
+pip3 install --user --break-system-packages "pyobjc-framework-Vision>=10.0"
+```
+
+The other PyObjC packages (`Quartz`, `AppKit`, `ApplicationServices`) are typically already present from `pyobjc-framework-Quartz` (pulled in by PyAutoGUI).
 
 # Use claude CLI tool
 

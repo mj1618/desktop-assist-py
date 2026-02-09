@@ -114,11 +114,15 @@ def _process_stream_line(
     verbose: bool = False,
     tool_start_times: dict[str, float],
     step_counter: list[int],
+    session_logger: object | None = None,
 ) -> str | None:
     """Parse a single stream-json line and print feedback.
 
     Returns the final result string when the ``result`` event is received,
     otherwise ``None``.
+
+    If *session_logger* is provided (a ``SessionLogger`` instance), events
+    are also written to the session log file.
     """
     line = line.strip()
     if not line:
@@ -165,10 +169,15 @@ def _process_stream_line(
                 if verbose and command:
                     _log(f"    {_c(_DIM, '$ ' + _truncate(command, 300))}")
 
+                if session_logger is not None:
+                    session_logger.log_tool_call(tool_name, tool_id, command or None)  # type: ignore[union-attr]
+
             elif block_type == "text":
                 text = block.get("text", "").strip()
                 if text and verbose:
                     _log(f"  {_c(_DIM, _truncate(text, 300))}")
+                if text and session_logger is not None:
+                    session_logger.log_text(text)  # type: ignore[union-attr]
 
     # ── User message (contains tool_result blocks) ──────────────────
     elif msg_type == "user":
@@ -181,9 +190,11 @@ def _process_stream_line(
 
                 # Calculate elapsed time
                 elapsed = ""
+                elapsed_s: float | None = None
                 start = tool_start_times.pop(tool_id, None)
                 if start is not None:
                     dt = time.monotonic() - start
+                    elapsed_s = dt
                     elapsed = f" {_c(_DIM, f'({dt:.1f}s)')}"
 
                 if is_error:
@@ -198,6 +209,9 @@ def _process_stream_line(
                         f"    {ok}{elapsed}"
                         + (f" {_c(_DIM, preview)}" if preview else "")
                     )
+
+                if session_logger is not None:
+                    session_logger.log_tool_result(tool_id, is_error, result_text, elapsed_s)  # type: ignore[union-attr]
 
     return None
 
@@ -245,6 +259,8 @@ def run_agent(
     verbose: bool = False,
     dry_run: bool = False,
     model: str | None = None,
+    log: bool = True,
+    log_dir: str | None = None,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -260,12 +276,23 @@ def run_agent(
         Print the command that would be run without executing.
     model:
         Model to use (e.g. "sonnet", "opus").  Defaults to Claude CLI default.
+    log:
+        Persist a structured JSONL session log to disk (default True).
+    log_dir:
+        Override the default session log directory.
 
     Returns
     -------
     str
         The final text response from the agent.
     """
+    from desktop_assist.logging import SessionLogger
+
+    session_logger: SessionLogger | None = None
+    if log and not dry_run:
+        session_logger = SessionLogger(session_dir=log_dir)
+        session_logger.log_start(prompt, model=model, max_turns=max_turns)
+
     system_prompt = _build_system_prompt()
 
     cmd = [
@@ -311,10 +338,14 @@ def run_agent(
     try:
         proc = subprocess.Popen(cmd, **popen_kwargs)  # type: ignore[arg-type]
     except FileNotFoundError:
-        return (
+        error_msg = (
             "[error] 'claude' CLI not found. "
             "Install it with: npm install -g @anthropic-ai/claude-code"
         )
+        if session_logger is not None:
+            session_logger.log_done(0, 0.0, error_msg)
+            session_logger.close()
+        return error_msg
 
     assert proc.stdout is not None  # for type checker
 
@@ -342,12 +373,17 @@ def run_agent(
                 verbose=verbose,
                 tool_start_times=tool_start_times,
                 step_counter=step_counter,
+                session_logger=session_logger,
             )
             if result is not None:
                 final_result = result
     except KeyboardInterrupt:
         _kill_process_tree(proc)
         _log(f"\n{_c(_YELLOW, 'interrupted')} — agent stopped.")
+        if session_logger is not None:
+            elapsed = time.monotonic() - agent_start
+            session_logger.log_done(step_counter[0], elapsed, "[interrupted]")
+            session_logger.close()
         return "[error] Agent interrupted by user."
 
     proc.wait()
@@ -362,15 +398,19 @@ def run_agent(
 
     # If we got a result from stream-json, use it
     if final_result is not None:
-        return final_result
-
-    # Fallback: read any remaining stderr for error info
-    stderr_out = "".join(stderr_chunks)
-
-    if proc.returncode != 0:
-        return (
+        result = final_result
+    elif proc.returncode != 0:
+        stderr_out = "".join(stderr_chunks)
+        result = (
             f"[error] Claude CLI exited with code {proc.returncode}. "
             f"stderr: {stderr_out}"
         )
+    else:
+        result = "[error] Empty response from Claude CLI."
 
-    return "[error] Empty response from Claude CLI."
+    if session_logger is not None:
+        session_logger.log_done(steps, elapsed, result)
+        session_logger.close()
+        _log(f"  session log: {_c(_DIM, str(session_logger.path))}")
+
+    return result

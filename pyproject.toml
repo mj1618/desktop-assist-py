@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,6 +12,9 @@ dependencies = [
     "pillow",
     "pygetwindow>=0.0.9",
     "pyperclip>=1.8.0",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +25,9 @@ dev = [
 
 [project.scripts]
 desktop-assist = "desktop_assist.main:main"
+
+[tool.setuptools.packages.find]
+include = ["desktop_assist*"]
 
 [tool.ruff]
 line-length = 100

@@ -18,39 +18,64 @@ import sys
 
 
 def check_accessibility() -> bool:
-    """Return ``True`` if the current process is trusted for Accessibility.
+    """Return ``True`` if the current process can actually send input events.
 
     On non-macOS platforms this always returns ``True``.
+
+    Note: ``AXIsProcessTrusted()`` can return ``True`` on macOS Sequoia even
+    when events are silently dropped, so we perform a real functional test
+    instead — we try to move the cursor and verify it actually moved.
     """
     if sys.platform != "darwin":
         return True
 
     try:
-        # ApplicationServices exposes AXIsProcessTrusted() which is the
-        # canonical way to check.  pyobjc-framework-ApplicationServices is
-        # pulled in by pyautogui on macOS, so this should be available.
+        import time
+
+        import Quartz
+
+        # Functional test: create a mouse-move event with an explicit source
+        # and verify the cursor actually moves.
+        source = Quartz.CGEventSourceCreate(
+            Quartz.kCGEventSourceStateHIDSystemState,
+        )
+        if source is None:
+            return False
+
+        before = Quartz.CGEventGetLocation(
+            Quartz.CGEventCreate(None),
+        )
+        # Pick a target that's different from the current position.
+        target_x = int(before.x) + (50 if before.x < 500 else -50)
+        target_y = int(before.y) + (50 if before.y < 500 else -50)
+
+        event = Quartz.CGEventCreateMouseEvent(
+            source, Quartz.kCGEventMouseMoved, (target_x, target_y), 0,
+        )
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+        time.sleep(0.15)
+
+        after = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        moved = abs(after.x - target_x) < 5 and abs(after.y - target_y) < 5
+
+        # Restore original cursor position.
+        restore = Quartz.CGEventCreateMouseEvent(
+            source, Quartz.kCGEventMouseMoved, (before.x, before.y), 0,
+        )
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, restore)
+
+        return moved
+    except Exception:
+        # If we can't determine, fall back to the API check.
+        pass
+
+    # Last resort: AXIsProcessTrusted (unreliable on Sequoia but better
+    # than nothing if Quartz is unavailable).
+    try:
         import ApplicationServices  # type: ignore[import-untyped]
 
         return bool(ApplicationServices.AXIsProcessTrusted())
     except ImportError:
-        pass
-
-    # Fallback: call the `tccutil` / osascript test.  A small AppleScript
-    # that performs a system-event action will fail if permissions are missing.
-    try:
-        result = subprocess.run(
-            [
-                "osascript",
-                "-e",
-                'tell application "System Events" to return name of first process',
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except Exception:
-        # If we can't determine, assume OK and let the user notice failures.
         return True
 
 
