@@ -147,6 +147,22 @@ The agent can take screenshots and view them directly using a two-step workflow:
 
 This allows the agent to see what's on screen, identify UI elements, read text, and make informed decisions about where to click or what to type — without relying solely on OCR.
 
+### Grid overlay for precise clicking
+
+LLMs can struggle to estimate exact pixel coordinates from raw screenshots. The grid overlay feature solves this by drawing a labeled coordinate grid on screenshots:
+
+```python
+from desktop_assist.screen import save_screenshot_with_grid, grid_to_coords
+
+# Take a screenshot with a grid overlay (columns A-Z, rows 1-N)
+save_screenshot_with_grid('/tmp/screen.png')
+
+# Convert a grid cell label to pixel coordinates
+x, y = grid_to_coords('D3')  # center of cell D3
+```
+
+The grid uses spreadsheet-style labels: columns are letters (A, B, C, ...) and rows are numbers (1, 2, 3, ...). `grid_to_coords()` returns the center of the cell, which is usually the best click target. The default grid spacing is 100px; pass `grid_spacing` to adjust.
+
 ## Safety
 
 PyAutoGUI's **fail-safe** is enabled by default — move the mouse to the

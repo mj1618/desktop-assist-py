@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import namedtuple
 from unittest.mock import MagicMock
 
+import pytest
 from PIL import Image
 
 from desktop_assist import screen
@@ -320,3 +321,102 @@ class TestLocateOnScreen:
     def test_returns_none_when_not_found(self, monkeypatch):
         monkeypatch.setattr(screen.pyautogui, "locateOnScreen", lambda *a, **kw: None)
         assert screen.locate_on_screen("img.png") is None
+
+
+# ---------------------------------------------------------------------------
+# grid_to_coords
+# ---------------------------------------------------------------------------
+
+
+class TestGridToCoords:
+    def test_a1_returns_center_of_first_cell(self):
+        assert screen.grid_to_coords("A1") == (50, 50)
+
+    def test_b3_returns_correct_coords(self):
+        # B=col 1, 3=row 2 -> (1*100+50, 2*100+50) = (150, 250)
+        assert screen.grid_to_coords("B3") == (150, 250)
+
+    def test_c5_returns_correct_coords(self):
+        # C=col 2, 5=row 4 -> (2*100+50, 4*100+50) = (250, 450)
+        assert screen.grid_to_coords("C5") == (250, 450)
+
+    def test_custom_grid_spacing(self):
+        # A1 with spacing=200 -> (100, 100)
+        assert screen.grid_to_coords("A1", grid_spacing=200) == (100, 100)
+        # B2 with spacing=50 -> (1*50+25, 1*50+25) = (75, 75)
+        assert screen.grid_to_coords("B2", grid_spacing=50) == (75, 75)
+
+    def test_case_insensitive(self):
+        assert screen.grid_to_coords("a1") == screen.grid_to_coords("A1")
+        assert screen.grid_to_coords("c5") == screen.grid_to_coords("C5")
+
+    def test_multi_digit_row(self):
+        # A12 -> col 0, row 11 -> (50, 11*100+50) = (50, 1150)
+        assert screen.grid_to_coords("A12") == (50, 1150)
+
+    def test_invalid_label_empty(self):
+        with pytest.raises(ValueError):
+            screen.grid_to_coords("")
+
+    def test_invalid_label_no_digits(self):
+        with pytest.raises(ValueError):
+            screen.grid_to_coords("AB")
+
+    def test_invalid_label_no_letters(self):
+        with pytest.raises(ValueError):
+            screen.grid_to_coords("123")
+
+    def test_invalid_label_zero_row(self):
+        with pytest.raises(ValueError):
+            screen.grid_to_coords("A0")
+
+    def test_invalid_label_special_chars(self):
+        with pytest.raises(ValueError):
+            screen.grid_to_coords("A-1")
+
+
+# ---------------------------------------------------------------------------
+# save_screenshot_with_grid
+# ---------------------------------------------------------------------------
+
+
+class TestSaveScreenshotWithGrid:
+    def test_creates_file(self, monkeypatch, tmp_path):
+        fake_img = _make_image(200, 200, (128, 128, 128))
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        result = screen.save_screenshot_with_grid(str(out))
+        assert result.exists()
+        assert result == out.resolve()
+
+    def test_output_dimensions_match_input(self, monkeypatch, tmp_path):
+        fake_img = _make_image(300, 400, (64, 64, 64))
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        screen.save_screenshot_with_grid(str(out))
+        saved = Image.open(out)
+        assert saved.size == (300, 400)
+
+    def test_passes_region(self, monkeypatch, tmp_path):
+        captured: dict = {}
+
+        def fake_screenshot(region=None):
+            captured["region"] = region
+            return _make_image(100, 100)
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+
+        out = tmp_path / "grid.png"
+        screen.save_screenshot_with_grid(str(out), region=(10, 20, 100, 100))
+        assert captured["region"] == (10, 20, 100, 100)
+
+    def test_custom_grid_spacing(self, monkeypatch, tmp_path):
+        fake_img = _make_image(200, 200, (100, 100, 100))
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: fake_img)
+
+        out = tmp_path / "grid.png"
+        # Should not raise with different spacing
+        result = screen.save_screenshot_with_grid(str(out), grid_spacing=50)
+        assert result.exists()
