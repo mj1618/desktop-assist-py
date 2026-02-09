@@ -65,6 +65,11 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     to respond.  This is faster and more reliable than clicking by coordinates.
     Use dismiss_dialog() for common actions like accepting or cancelling.
 
+    After actions that trigger animations or page loads (launching an app,
+    clicking a link, opening a menu), prefer screenshot_when_stable() over
+    save_screenshot() to ensure you capture the final state rather than a
+    mid-transition frame.
+
     Important guidelines:
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.

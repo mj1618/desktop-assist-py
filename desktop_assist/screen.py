@@ -113,6 +113,22 @@ def wait_for_image_gone(
     return False
 
 
+def _images_differ(a: Image.Image, b: Image.Image, threshold: float) -> bool:
+    """Return True if images *a* and *b* differ by at least *threshold* fraction of pixels."""
+    if a.size != b.size:
+        return True
+    total_pixels = a.size[0] * a.size[1]
+    if total_pixels == 0:
+        return False
+    diff = ImageChops.difference(a.convert("RGB"), b.convert("RGB"))
+    # Take the per-pixel max across R/G/B channels so any single-channel
+    # difference produces a non-zero value in the resulting grayscale image.
+    r, g, b = diff.split()
+    gray = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    changed_pixels = total_pixels - gray.histogram()[0]
+    return (changed_pixels / total_pixels) >= threshold
+
+
 def has_region_changed(
     region: tuple[int, int, int, int],
     reference: Image.Image,
@@ -128,20 +144,7 @@ def has_region_changed(
     """
     try:
         current = take_screenshot(region=region)
-        if current.size != reference.size:
-            return True
-        diff = ImageChops.difference(current.convert("RGB"), reference.convert("RGB"))
-        total_pixels = current.size[0] * current.size[1]
-        if total_pixels == 0:
-            return False
-        # Take the per-pixel max across R/G/B channels so any single-channel
-        # difference produces a non-zero value in the resulting grayscale image.
-        r, g, b = diff.split()
-        gray = ImageChops.lighter(ImageChops.lighter(r, g), b)
-        hist = gray.histogram()
-        unchanged_pixels = hist[0]
-        changed_pixels = total_pixels - unchanged_pixels
-        return (changed_pixels / total_pixels) >= threshold
+        return _images_differ(current, reference, threshold)
     except Exception:
         return False
 
@@ -167,6 +170,86 @@ def wait_for_region_change(
         if has_region_changed(region, baseline, threshold=threshold):
             return True
     return False
+
+
+def wait_until_stable(
+    region: tuple[int, int, int, int] | None = None,
+    timeout: float = 10.0,
+    stability_period: float = 0.5,
+    poll_interval: float = 0.2,
+    threshold: float = 0.005,
+) -> bool:
+    """Wait until the screen (or a region) stops changing.
+
+    Takes repeated screenshots and compares consecutive frames.  The screen
+    is considered "stable" when it has not changed for *stability_period*
+    seconds (i.e., multiple consecutive comparisons show no difference
+    above *threshold*).
+
+    This is the inverse of wait_for_region_change() — it waits for the
+    screen to STOP changing rather than START changing.
+
+    Parameters
+    ----------
+    region:
+        Optional (left, top, width, height) to monitor.  When None, the
+        full screen is checked.
+    timeout:
+        Maximum time to wait in seconds.
+    stability_period:
+        How long the screen must remain unchanged to be considered stable.
+    poll_interval:
+        Time between consecutive screenshot comparisons.
+    threshold:
+        Fraction of pixels that must differ to consider frames "different".
+        Default 0.005 (0.5%) allows for minor cursor blink or clock updates.
+
+    Returns True if the screen stabilized within the timeout, False if it
+    was still changing when the timeout expired.
+    """
+    deadline = time.monotonic() + timeout
+    previous = take_screenshot(region=region)
+    stable_since = time.monotonic()
+
+    while True:
+        time.sleep(poll_interval)
+        now = time.monotonic()
+        if now >= deadline:
+            return False
+
+        current = take_screenshot(region=region)
+        changed = _images_differ(current, previous, threshold)
+
+        if changed:
+            stable_since = now
+            previous = current
+        elif now - stable_since >= stability_period:
+            return True
+
+
+def screenshot_when_stable(
+    path: str | Path,
+    region: tuple[int, int, int, int] | None = None,
+    timeout: float = 10.0,
+    stability_period: float = 0.5,
+    threshold: float = 0.005,
+) -> Path:
+    """Wait for the screen to stabilize, then save a screenshot.
+
+    Combines wait_until_stable() + save_screenshot() into the most common
+    agent pattern: "wait for the screen to be ready, then capture it."
+
+    Returns the path to the saved screenshot.  If the screen does not
+    stabilize within *timeout*, a screenshot is saved anyway (of whatever
+    state the screen is in) so the agent can still make progress.
+    """
+    wait_until_stable(
+        region=region,
+        timeout=timeout,
+        stability_period=stability_period,
+        threshold=threshold,
+    )
+    return save_screenshot(path, region=region)
 
 
 def _col_to_label(col: int) -> str:

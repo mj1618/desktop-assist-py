@@ -420,3 +420,233 @@ class TestSaveScreenshotWithGrid:
         # Should not raise with different spacing
         result = screen.save_screenshot_with_grid(str(out), grid_spacing=50)
         assert result.exists()
+
+
+# ---------------------------------------------------------------------------
+# wait_until_stable
+# ---------------------------------------------------------------------------
+
+
+class TestWaitUntilStable:
+    def test_returns_true_when_already_stable(self, monkeypatch):
+        """Identical screenshots should be considered stable immediately."""
+        img = _make_image(10, 10, (100, 100, 100))
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: img.copy())
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        # Simulate time advancing by poll_interval on each call so
+        # stability_period is reached quickly.
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            # Each call advances 0.2s — after ~4 calls (0.8s) exceeds
+            # the default stability_period of 0.5s.
+            return call_count * 0.2
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        assert screen.wait_until_stable(timeout=10.0, stability_period=0.5) is True
+
+    def test_returns_true_after_changing_then_stable(self, monkeypatch):
+        """Screen changes for a few frames then stabilizes."""
+        stable_img = _make_image(10, 10, (100, 100, 100))
+        call_count = 0
+
+        def fake_screenshot(region=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                # Return different images for first 3 captures
+                return _make_image(10, 10, (call_count * 50, 0, 0))
+            return stable_img.copy()
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        time_counter = 0.0
+
+        def fake_monotonic():
+            nonlocal time_counter
+            time_counter += 0.2
+            return time_counter
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        assert screen.wait_until_stable(
+            timeout=30.0, stability_period=0.5, poll_interval=0.2
+        ) is True
+
+    def test_returns_false_on_timeout(self, monkeypatch):
+        """If the screen never stops changing, returns False."""
+        call_count = 0
+
+        def fake_screenshot(region=None):
+            nonlocal call_count
+            call_count += 1
+            # Always return a different image
+            return _make_image(10, 10, (call_count % 256, 0, 0))
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        time_counter = 0.0
+
+        def fake_monotonic():
+            nonlocal time_counter
+            time_counter += 0.2
+            return time_counter
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        assert screen.wait_until_stable(timeout=2.0, stability_period=0.5) is False
+
+    def test_stability_period_respected(self, monkeypatch):
+        """A single stable frame pair isn't enough — multiple are required."""
+        stable_img = _make_image(10, 10, (100, 100, 100))
+        call_count = 0
+
+        def fake_screenshot(region=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # First two frames are different
+                return _make_image(10, 10, (call_count * 80, 0, 0))
+            if call_count == 5:
+                # Interrupt stability at frame 5 — forces reset
+                return _make_image(10, 10, (200, 200, 200))
+            return stable_img.copy()
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        time_counter = 0.0
+
+        def fake_monotonic():
+            nonlocal time_counter
+            time_counter += 0.15
+            return time_counter
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        # Should eventually return True, but the interruption at frame 5
+        # means it takes more iterations than without.
+        result = screen.wait_until_stable(
+            timeout=30.0, stability_period=0.5, poll_interval=0.15
+        )
+        assert result is True
+        # Must have gone past frame 5 (the interruption)
+        assert call_count > 5
+
+    def test_passes_region_to_take_screenshot(self, monkeypatch):
+        """Region parameter is forwarded to take_screenshot."""
+        captured_regions = []
+
+        def fake_screenshot(region=None):
+            captured_regions.append(region)
+            return _make_image(10, 10, (100, 100, 100))
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            return call_count * 0.3
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        screen.wait_until_stable(
+            region=(10, 20, 30, 40), timeout=5.0, stability_period=0.5
+        )
+        assert all(r == (10, 20, 30, 40) for r in captured_regions)
+
+
+# ---------------------------------------------------------------------------
+# screenshot_when_stable
+# ---------------------------------------------------------------------------
+
+
+class TestScreenshotWhenStable:
+    def test_saves_file_and_returns_path(self, monkeypatch, tmp_path):
+        """Basic happy path: screen is stable, screenshot is saved."""
+        img = _make_image(10, 10, (100, 100, 100))
+        monkeypatch.setattr(screen, "take_screenshot", lambda region=None: img.copy())
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            return call_count * 0.3
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        out = tmp_path / "stable.png"
+        result = screen.screenshot_when_stable(str(out), timeout=5.0)
+        assert result.exists()
+        assert result == out.resolve()
+
+    def test_saves_file_even_on_timeout(self, monkeypatch, tmp_path):
+        """Even if the screen never stabilizes, a screenshot is saved."""
+        call_count = 0
+
+        def fake_screenshot(region=None):
+            nonlocal call_count
+            call_count += 1
+            return _make_image(10, 10, (call_count % 256, 0, 0))
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        time_counter = 0.0
+
+        def fake_monotonic():
+            nonlocal time_counter
+            time_counter += 0.2
+            return time_counter
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+        # save_screenshot needs to capture — provide a stable image for the final call
+        monkeypatch.setattr(
+            screen.pyautogui,
+            "screenshot",
+            lambda region=None: _make_image(10, 10, (50, 50, 50)),
+        )
+
+        out = tmp_path / "timeout.png"
+        result = screen.screenshot_when_stable(str(out), timeout=1.0)
+        assert result.exists()
+        assert result == out.resolve()
+
+    def test_passes_region(self, monkeypatch, tmp_path):
+        """Region parameter is forwarded."""
+        captured_regions = []
+
+        def fake_screenshot(region=None):
+            captured_regions.append(region)
+            return _make_image(10, 10, (100, 100, 100))
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.pyautogui, "screenshot", fake_screenshot)
+        monkeypatch.setattr(screen.time, "sleep", lambda _: None)
+
+        call_count = 0
+
+        def fake_monotonic():
+            nonlocal call_count
+            call_count += 1
+            return call_count * 0.3
+
+        monkeypatch.setattr(screen.time, "monotonic", fake_monotonic)
+
+        out = tmp_path / "region.png"
+        screen.screenshot_when_stable(
+            str(out), region=(10, 20, 30, 40), timeout=5.0
+        )
+        # All calls to take_screenshot should include the region
+        assert all(r == (10, 20, 30, 40) for r in captured_regions)
