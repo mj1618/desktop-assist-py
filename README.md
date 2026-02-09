@@ -23,6 +23,7 @@ desktop_assist/
 ├── __init__.py    # package metadata
 ├── actions.py     # mouse & keyboard helpers (click, type, hotkey, …)
 ├── clipboard.py   # clipboard read/write and copy/paste helpers
+├── launcher.py    # launch apps, open files/URLs, check running state
 ├── screen.py      # screen capture & image-location helpers
 ├── windows.py     # window discovery, focus, move & resize
 └── main.py        # CLI entry point / demo
@@ -34,6 +35,7 @@ desktop_assist/
 |--------|---------|
 | `actions` | Thin wrappers around PyAutoGUI mouse/keyboard functions with sane defaults (`PAUSE`, `FAILSAFE`). |
 | `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
+| `launcher` | Launch apps by name, open files/URLs in default apps, check if apps are running, and wait for app startup. Uses `open` on macOS, `xdg-open` on Linux. |
 | `screen` | Screenshot capture, save-to-disk, and `locate_on_screen` for image-based element detection. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
 | `main` | Entry point that wires everything together. Run via `desktop-assist` after install. |

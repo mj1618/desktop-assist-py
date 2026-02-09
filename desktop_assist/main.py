@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from desktop_assist.launcher import is_app_running
 from desktop_assist.screen import save_screenshot, take_screenshot
 from desktop_assist.windows import get_active_window, list_windows
 
@@ -30,6 +31,11 @@ def demo() -> None:
     active = get_active_window()
     if active:
         print(f"\nActive window: {active['title']}")
+
+    # App running check
+    for app_name in ("Finder", "Safari", "Terminal"):
+        status = "running" if is_app_running(app_name) else "not running"
+        print(f"  {app_name}: {status}")
 
 
 def main() -> None:
