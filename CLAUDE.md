@@ -22,6 +22,10 @@ Keep the readme updated as you implement new features. It should be a simple gui
 
 `pygetwindow`'s macOS support is incomplete — `MacOSWindow` methods all raise `NotImplementedError` and `getAllWindows()` doesn't exist. The `desktop_assist/windows.py` module works around this by using Quartz CGWindowList (for listing), AppKit NSRunningApplication (for focus), and AppleScript via `osascript` (for move/resize) directly on macOS. The pygetwindow fallback path is only used on Windows/Linux.
 
+# macOS Accessibility permissions
+
+PyAutoGUI sends synthetic mouse/keyboard events via Quartz `CGEventPost`. On macOS these are **silently dropped** unless the terminal app has Accessibility access granted in **System Settings > Privacy & Security > Accessibility**. There is no error — events just don't register. The `desktop_assist/permissions.py` module checks this and `actions.py` warns on first use. Run `desktop-assist --check-permissions` to diagnose.
+
 # Use claude CLI tool
 
 If you need to call an agent, just use the Claude CLI that is already installed and configured.

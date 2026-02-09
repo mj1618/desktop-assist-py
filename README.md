@@ -42,12 +42,33 @@ desktop-assist --model sonnet "open TextEdit and type hello world"
 # preview the Claude CLI command without executing
 desktop-assist --dry-run "open Finder"
 
-# verbose output (see each tool call)
+# verbose output (see full tool results)
 desktop-assist -v "resize the Terminal window to 800x600"
 
 # limit agent turns
 desktop-assist --max-turns 10 "open Safari"
 ```
+
+### Live feedback
+
+By default, `desktop-assist` streams real-time feedback to the terminal
+showing each tool call as it happens:
+
+```
+desktop-assist starting agent...
+  prompt: take a screenshot and tell me what you see
+
+[1] Bash: path = save_screenshot('/tmp/screen.png') ; print(path)
+    done (1.2s)
+
+[2] Bash: print(get_screen_size())
+    done (0.4s)
+
+done (2 tool calls, 8.3s)
+```
+
+Use `--verbose` / `-v` to also see full tool results. The final agent
+response is printed to stdout so it can be piped to other commands.
 
 **Requirements:** The [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 must be installed and configured (`claude` on PATH).
@@ -83,6 +104,33 @@ desktop_assist/
 | `tools` | Auto-discovers all public functions from helper modules and builds a tool registry with descriptions for the LLM system prompt. |
 | `agent` | Agent loop that sends the user's prompt to the Claude CLI with a system prompt describing all tools, then lets Claude drive the desktop via Bash tool calls. |
 | `main` | CLI entry point with argparse. Runs the agent loop when given a prompt, demo mode otherwise. |
+
+## macOS: Accessibility permissions
+
+On macOS, PyAutoGUI sends synthetic mouse and keyboard events via Quartz
+`CGEventPost`.  These events are **silently dropped** by the OS unless the
+terminal application has been granted **Accessibility** access.
+
+**Symptoms:** `click()`, `press()`, `type_text()` etc. run without errors
+but nothing happens on screen.  Real keyboard/mouse input works fine.
+
+**Fix:**
+
+1. Open **System Settings > Privacy & Security > Accessibility**
+2. Click the **+** button
+3. Add your terminal app (Terminal.app, iTerm2, VS Code, Cursor, etc.)
+4. Make sure the toggle is **ON**
+5. **Restart your terminal** and try again
+
+You can verify permissions at any time:
+
+```bash
+desktop-assist --check-permissions
+```
+
+> **Note:** If you run `desktop-assist` from inside an IDE's integrated
+> terminal, the *IDE application* (e.g. VS Code / Cursor) is what needs
+> the Accessibility permission, not Terminal.app.
 
 ## Safety
 

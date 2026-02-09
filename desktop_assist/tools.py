@@ -6,7 +6,16 @@ import inspect
 import re
 from typing import Any, Callable
 
-from desktop_assist import actions, clipboard, filesystem, launcher, notifications, screen, windows
+from desktop_assist import (
+    actions,
+    clipboard,
+    filesystem,
+    launcher,
+    notifications,
+    ocr,
+    screen,
+    windows,
+)
 
 # Modules to scan for tools (order determines listing order).
 _MODULES = [
@@ -17,6 +26,7 @@ _MODULES = [
     launcher,
     notifications,
     filesystem,
+    ocr,
 ]
 
 

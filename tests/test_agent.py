@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 
@@ -28,6 +29,22 @@ class TestBuildSystemPrompt:
         prompt = agent._build_system_prompt()
         assert "screenshot" in prompt.lower()
         assert "verify" in prompt.lower()
+
+
+def _make_fake_popen(stdout_lines: list[str], returncode: int = 0):
+    """Return a factory that produces a fake Popen whose stdout yields *stdout_lines*."""
+
+    def fake_popen(cmd, **kwargs):
+        proc = subprocess.CompletedProcess(cmd, returncode)
+        # Attach a stdout iterable and a stderr with .read()
+        proc.stdout = io.StringIO("\n".join(stdout_lines) + "\n")  # type: ignore[assignment]
+        proc.stderr = io.StringIO("")  # type: ignore[assignment]
+        proc.wait = lambda: None  # type: ignore[assignment]
+        proc.kill = lambda: None  # type: ignore[assignment]
+        proc.returncode = returncode
+        return proc
+
+    return fake_popen
 
 
 class TestRunAgent:
@@ -58,10 +75,8 @@ class TestRunAgent:
 
         monkeypatch.setattr(
             agent.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 0, stdout=response, stderr=""
-            ),
+            "Popen",
+            _make_fake_popen([response]),
         )
 
         result = agent.run_agent("take a screenshot")
@@ -77,10 +92,8 @@ class TestRunAgent:
 
         monkeypatch.setattr(
             agent.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 1, stdout=response, stderr=""
-            ),
+            "Popen",
+            _make_fake_popen([response]),
         )
 
         result = agent.run_agent("do something")
@@ -90,63 +103,64 @@ class TestRunAgent:
     def test_empty_stdout_with_error_code(self, monkeypatch):
         monkeypatch.setattr(
             agent.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 1, stdout="", stderr="something went wrong"
-            ),
+            "Popen",
+            _make_fake_popen([], returncode=1),
         )
 
         result = agent.run_agent("do something")
         assert "[error]" in result
 
-    def test_timeout_returns_error(self, monkeypatch):
-        def fake_run(cmd, **kwargs):
-            raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 60))
-
-        monkeypatch.setattr(agent.subprocess, "run", fake_run)
-
-        result = agent.run_agent("long task", max_turns=1)
-        assert "[error]" in result
-        assert "timed out" in result
-
     def test_claude_not_found(self, monkeypatch):
-        def fake_run(cmd, **kwargs):
+        def fake_popen(cmd, **kwargs):
             raise FileNotFoundError("claude not found")
 
-        monkeypatch.setattr(agent.subprocess, "run", fake_run)
+        monkeypatch.setattr(agent.subprocess, "Popen", fake_popen)
 
         result = agent.run_agent("do something")
         assert "[error]" in result
         assert "claude" in result.lower()
 
-    def test_non_json_stdout_returned_as_text(self, monkeypatch):
+    def test_stream_tool_use_and_result(self, monkeypatch):
+        """Verify that tool_use and tool_result events are processed correctly."""
+        lines = [
+            json.dumps({
+                "type": "assistant",
+                "message": {
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "Bash",
+                        "input": {"command": "echo hello"},
+                    }],
+                },
+            }),
+            json.dumps({
+                "type": "user",
+                "message": {
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "tool_1",
+                        "content": "hello",
+                        "is_error": False,
+                    }],
+                },
+            }),
+            json.dumps({
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "result": "Done!",
+            }),
+        ]
+
         monkeypatch.setattr(
             agent.subprocess,
-            "run",
-            lambda cmd, **kw: subprocess.CompletedProcess(
-                cmd, 0, stdout="Plain text response", stderr=""
-            ),
+            "Popen",
+            _make_fake_popen(lines),
         )
 
-        result = agent.run_agent("do something")
-        assert result == "Plain text response"
-
-    def test_max_turns_affects_timeout(self, monkeypatch):
-        captured_kwargs: dict = {}
-
-        def fake_run(cmd, **kwargs):
-            captured_kwargs.update(kwargs)
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout=json.dumps({"result": "done", "is_error": False}), stderr=""
-            )
-
-        monkeypatch.setattr(agent.subprocess, "run", fake_run)
-
-        agent.run_agent("task", max_turns=5)
-        assert captured_kwargs["timeout"] == 5 * 60
-
-        agent.run_agent("task", max_turns=10)
-        assert captured_kwargs["timeout"] == 10 * 60
+        result = agent.run_agent("say hello")
+        assert result == "Done!"
 
     def test_model_flag_passed_to_cli(self):
         result = agent.run_agent("test", dry_run=True, model="opus")
