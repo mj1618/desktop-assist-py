@@ -53,6 +53,9 @@ desktop-assist --max-budget 5.0 "fill out the expense report form"
 
 # enforce a wall-clock time limit (exits with code 124 on timeout)
 desktop-assist --timeout 60 "open Safari and search for flights"
+
+# disable automatic initial screenshot (saves a round-trip by default)
+desktop-assist --no-observe "run a specific keyboard shortcut"
 ```
 
 ### Live feedback

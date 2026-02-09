@@ -51,6 +51,24 @@ def _make_fake_popen(stdout_lines: list[str], returncode: int = 0):
     return fake_popen
 
 
+def _make_capturing_popen():
+    """Return (captured_cmd, fake_popen) where fake_popen records the full
+    CLI command list in *captured_cmd* and returns a successful "Done!" result."""
+    captured_cmd: list[str] = []
+    response = json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "Done!",
+    })
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return _make_fake_popen([response])(cmd, **kwargs)
+
+    return captured_cmd, fake_popen
+
+
 class TestRunAgent:
     def test_dry_run_returns_command(self):
         result = agent.run_agent("test prompt", dry_run=True)
@@ -399,3 +417,75 @@ class TestTimeout:
 
         result = agent.run_agent("test", timeout=None)
         assert result == "Done!"
+
+
+class TestObserveFirst:
+    """Tests for the --no-observe / observe_first feature."""
+
+    def test_dry_run_does_not_take_screenshot(self):
+        """Dry-run should not attempt to capture a screenshot."""
+        result = agent.run_agent("test prompt", dry_run=True, observe_first=True)
+        assert result.startswith("[dry-run]")
+        # The prompt in the dry-run command should be the original prompt,
+        # not augmented with screenshot info (since dry_run skips screenshot)
+        assert "test prompt" in result
+
+    def test_observe_first_augments_prompt(self, monkeypatch, tmp_path):
+        """When observe_first=True, the prompt sent to the CLI should mention
+        the initial screenshot path."""
+        captured_cmd, fake_popen = _make_capturing_popen()
+        monkeypatch.setattr(agent.subprocess, "Popen", fake_popen)
+
+        # Mock save_screenshot to write a tiny file
+        def fake_save_screenshot(path, **kwargs):
+            from pathlib import Path
+            Path(path).write_bytes(b"fakepng")
+            return Path(path)
+
+        monkeypatch.setattr(
+            "desktop_assist.screen.save_screenshot", fake_save_screenshot
+        )
+
+        result = agent.run_agent("open Safari", observe_first=True)
+        assert result == "Done!"
+
+        # The prompt (last element of cmd) should be augmented
+        prompt_arg = captured_cmd[-1]
+        assert "initial screenshot" in prompt_arg.lower() or "screenshot" in prompt_arg.lower()
+        assert "Task: open Safari" in prompt_arg
+
+    def test_no_observe_sends_original_prompt(self, monkeypatch):
+        """When observe_first=False, the prompt should be passed through unmodified."""
+        captured_cmd, fake_popen = _make_capturing_popen()
+        monkeypatch.setattr(agent.subprocess, "Popen", fake_popen)
+
+        result = agent.run_agent("open Safari", observe_first=False)
+        assert result == "Done!"
+
+        # The prompt (last element of cmd) should be unmodified
+        prompt_arg = captured_cmd[-1]
+        assert prompt_arg == "open Safari"
+
+    def test_screenshot_failure_falls_back_silently(self, monkeypatch):
+        """If save_screenshot raises, the agent should still run with the original prompt."""
+        captured_cmd, fake_popen = _make_capturing_popen()
+        monkeypatch.setattr(agent.subprocess, "Popen", fake_popen)
+
+        def failing_save_screenshot(path, **kwargs):
+            raise RuntimeError("No display connected")
+
+        monkeypatch.setattr(
+            "desktop_assist.screen.save_screenshot", failing_save_screenshot
+        )
+
+        result = agent.run_agent("open Safari", observe_first=True)
+        assert result == "Done!"
+
+        # The prompt should be the original since screenshot failed
+        prompt_arg = captured_cmd[-1]
+        assert prompt_arg == "open Safari"
+
+    def test_system_prompt_mentions_initial_screenshot(self):
+        """The system prompt should instruct the agent to check for an initial screenshot."""
+        prompt = agent._build_system_prompt()
+        assert "initial screenshot" in prompt.lower()

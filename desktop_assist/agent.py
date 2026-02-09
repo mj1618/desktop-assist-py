@@ -8,6 +8,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 import time
@@ -150,6 +151,9 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     a given coordinate.
 
     Important guidelines:
+    - If the prompt mentions an initial screenshot has been saved, use the Read
+      tool to view it FIRST — this gives you immediate visual context without
+      needing to take your own screenshot.
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.
     - After every significant action, save a screenshot AND view it with the
@@ -413,6 +417,7 @@ def run_agent(
     max_budget: float = 1.0,
     instructions: str | None = None,
     timeout: float | None = None,
+    observe_first: bool = True,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -440,6 +445,9 @@ def run_agent(
         Custom instructions to append to the system prompt.
     timeout:
         Maximum wall-clock time in seconds for the agent run. None means no limit.
+    observe_first:
+        Capture a screenshot before launching the agent so it has immediate
+        visual context (default True).  Pass False to skip.
 
     Returns
     -------
@@ -462,6 +470,29 @@ def run_agent(
             session_logger.log_resume(resume_from)
 
     system_prompt = _build_system_prompt(custom_instructions=instructions)
+
+    # ── Capture initial screenshot so the agent has visual context from turn 1 ──
+    initial_screenshot_path: str | None = None
+    if observe_first and not dry_run:
+        try:
+            from desktop_assist.screen import save_screenshot
+
+            # Use PID + timestamp to avoid collisions with concurrent runs
+            fname = f"desktop-assist-initial-{os.getpid()}-{int(time.time())}.png"
+            initial_screenshot_path = os.path.join(tempfile.gettempdir(), fname)
+            save_screenshot(initial_screenshot_path)
+            _log(f"  initial screenshot: {_c(_DIM, initial_screenshot_path)}")
+
+            prompt = (
+                f"I have already taken a screenshot of the current screen and saved it to "
+                f"{initial_screenshot_path}. Start by using the Read tool to view this "
+                f"screenshot so you can see the current state, then proceed with the task.\n\n"
+                f"Task: {prompt}"
+            )
+        except Exception as exc:
+            # If screenshot capture fails, fall back to normal behavior silently
+            _log(f"  {_c(_DIM, f'initial screenshot skipped: {exc}')}")
+            initial_screenshot_path = None
 
     cmd = [
         "claude",

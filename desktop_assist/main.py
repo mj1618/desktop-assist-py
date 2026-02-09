@@ -255,6 +255,12 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="Maximum wall-clock time in seconds for the agent run. No limit by default.",
     )
+    parser.add_argument(
+        "--no-observe",
+        action="store_true",
+        help="Disable automatic initial screenshot (by default a screenshot is captured "
+             "before the agent starts so it has immediate visual context).",
+    )
     return parser
 
 
@@ -369,6 +375,7 @@ def main() -> None:
             max_budget=args.max_budget,
             instructions=custom_instructions,
             timeout=args.timeout,
+            observe_first=not args.no_observe,
         )
         print(result)
         if result.startswith("[timeout]"):
