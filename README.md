@@ -81,6 +81,7 @@ desktop_assist/
 ├── actions.py       # mouse & keyboard helpers (click, type, hotkey, …)
 ├── agent.py         # LLM agent loop (drives desktop via Claude CLI)
 ├── clipboard.py     # clipboard read/write and copy/paste helpers
+├── dialogs.py       # dialog/sheet/alert detection and interaction
 ├── launcher.py      # launch apps, open files/URLs, check running state
 ├── screen.py        # screen capture & image-location helpers
 ├── filesystem.py    # file system helpers (read, write, list, find, wait)
@@ -99,6 +100,7 @@ desktop_assist/
 |--------|---------|
 | `actions` | Thin wrappers around PyAutoGUI mouse/keyboard functions with sane defaults (`PAUSE`, `FAILSAFE`). |
 | `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
+| `dialogs` | Detect and interact with macOS dialogs, sheets, and alerts programmatically via System Events. Supports reading dialog text/buttons, clicking buttons by name, setting text fields, and dismissing with common actions. |
 | `launcher` | Launch apps by name, open files/URLs in default apps, check if apps are running, and wait for app startup. Uses `open` on macOS, `xdg-open` on Linux. |
 | `screen` | Screenshot capture, save-to-disk, `locate_on_screen`, display info (`get_screen_size`, `get_cursor_position`), and visual-wait primitives (`wait_for_image`, `wait_for_image_gone`, `has_region_changed`, `wait_for_region_change`). |
 | `filesystem` | Read, write, append, list, find, and wait for files. Includes `wait_for_file` for downloads and `find_files` for recursive search. Standard library only. |

@@ -60,6 +60,11 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     click(x, y)
     "
 
+    When a dialog, sheet, or alert appears (e.g. Save, permission prompt,
+    confirmation), use get_dialog() to read its contents and click_dialog_button()
+    to respond.  This is faster and more reliable than clicking by coordinates.
+    Use dismiss_dialog() for common actions like accepting or cancelling.
+
     Important guidelines:
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.

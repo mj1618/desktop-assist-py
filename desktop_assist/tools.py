@@ -9,6 +9,7 @@ from typing import Any, Callable
 from desktop_assist import (
     actions,
     clipboard,
+    dialogs,
     filesystem,
     launcher,
     menus,
@@ -25,6 +26,7 @@ _MODULES = [
     screen,
     windows,
     menus,
+    dialogs,
     clipboard,
     launcher,
     notifications,
