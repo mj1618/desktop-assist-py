@@ -47,6 +47,9 @@ desktop-assist -v "resize the Terminal window to 800x600"
 
 # limit agent turns
 desktop-assist --max-turns 10 "open Safari"
+
+# increase budget for complex tasks (default: $1.00)
+desktop-assist --max-budget 5.0 "fill out the expense report form"
 ```
 
 ### Live feedback

@@ -377,6 +377,7 @@ def run_agent(
     log: bool = True,
     log_dir: str | None = None,
     resume_from: str | None = None,
+    max_budget: float = 1.0,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -398,6 +399,8 @@ def run_agent(
         Override the default session log directory.
     resume_from:
         Session ID of a previous session being resumed (for log linkage).
+    max_budget:
+        Maximum spend in USD for the agent run (default 1.0).
 
     Returns
     -------
@@ -409,7 +412,7 @@ def run_agent(
     session_logger: SessionLogger | None = None
     if log and not dry_run:
         session_logger = SessionLogger(session_dir=log_dir)
-        session_logger.log_start(prompt, model=model, max_turns=max_turns)
+        session_logger.log_start(prompt, model=model, max_turns=max_turns, max_budget=max_budget)
         if resume_from:
             session_logger.log_resume(resume_from)
 
@@ -424,7 +427,7 @@ def run_agent(
         "--system-prompt", system_prompt,
         "--allowedTools", "Bash", "Read",
         "--dangerously-skip-permissions",
-        "--max-budget-usd", "1.00",
+        "--max-budget-usd", f"{max_budget:.2f}",
     ]
 
     if model:

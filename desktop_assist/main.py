@@ -216,6 +216,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Resume a previous interrupted session by ID (or 'last' for most recent).",
     )
+    parser.add_argument(
+        "--max-budget",
+        type=float,
+        default=1.0,
+        help="Maximum budget in USD for the agent run (default: 1.00).",
+    )
     return parser
 
 
@@ -287,6 +293,7 @@ def main() -> None:
             log=not args.no_log,
             log_dir=args.log_dir,
             resume_from=resume_from,
+            max_budget=args.max_budget,
         )
         print(result)
     except KeyboardInterrupt:

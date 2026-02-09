@@ -49,13 +49,18 @@ class SessionLogger:
     # -- public API -----------------------------------------------------------
 
     def log_start(
-        self, prompt: str, model: str | None = None, max_turns: int = 30
+        self,
+        prompt: str,
+        model: str | None = None,
+        max_turns: int = 30,
+        max_budget: float | None = None,
     ) -> None:
         self._write(
             event="start",
             prompt=prompt,
             model=model,
             max_turns=max_turns,
+            max_budget=max_budget,
         )
 
     def log_resume(self, previous_session_id: str) -> None:
