@@ -80,6 +80,7 @@ desktop_assist/
 ├── __init__.py      # package metadata
 ├── actions.py       # mouse & keyboard helpers (click, type, hotkey, …)
 ├── agent.py         # LLM agent loop (drives desktop via Claude CLI)
+├── browser.py       # Safari browser automation (tabs, navigation, JS, forms)
 ├── clipboard.py     # clipboard read/write and copy/paste helpers
 ├── dialogs.py       # dialog/sheet/alert detection and interaction
 ├── launcher.py      # launch apps, open files/URLs, check running state
@@ -99,6 +100,7 @@ desktop_assist/
 | Module | Purpose |
 |--------|---------|
 | `actions` | Thin wrappers around PyAutoGUI mouse/keyboard functions with sane defaults (`PAUSE`, `FAILSAFE`). |
+| `browser` | Safari browser automation via AppleScript: tab management, URL navigation, page content reading, JavaScript execution, link/form extraction, and form filling. Replaces screenshot+OCR for web tasks. |
 | `clipboard` | Read/write the system clipboard and convenience copy/paste helpers. Uses `pbcopy`/`pbpaste` on macOS, `pyperclip` elsewhere. |
 | `dialogs` | Detect and interact with macOS dialogs, sheets, and alerts programmatically via System Events. Supports reading dialog text/buttons, clicking buttons by name, setting text fields, and dismissing with common actions. |
 | `launcher` | Launch apps by name, open files/URLs in default apps, check if apps are running, and wait for app startup. Uses `open` on macOS, `xdg-open` on Linux. |

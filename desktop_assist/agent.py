@@ -111,6 +111,36 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     save_screenshot() to ensure you capture the final state rather than a
     mid-transition frame.
 
+    When interacting with web pages in Safari, prefer the browser module
+    over screenshot+OCR — it is faster, more reliable, and cheaper:
+    - Use get_page_text() to read page content instead of screenshot+OCR
+    - Use run_javascript() to interact with page elements directly
+    - Use click_link() to navigate instead of coordinate-based clicking
+    - Use fill_field() to enter form data instead of click+type workflows
+    - Use get_links() and get_forms() to discover page structure
+
+    Example — search the web:
+
+        Step 1 (Bash): python3 -c "
+    from desktop_assist.browser import navigate, fill_field
+    navigate('https://google.com')
+    "
+
+        Step 2 (Bash): python3 -c "
+    from desktop_assist.browser import fill_field, run_javascript
+    fill_field('textarea[name=q]', 'flights to Tokyo')
+    run_javascript('document.querySelector(\"form\").submit()')
+    "
+
+        Step 3 (Bash): python3 -c "
+    from desktop_assist.browser import get_page_text
+    print(get_page_text()[:5000])
+    "
+
+    Note: run_javascript() requires 'Allow JavaScript from Apple Events'
+    enabled in Safari > Develop menu.  get_page_url() and get_page_title()
+    work without this setting.
+
     Important guidelines:
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.
@@ -381,6 +411,7 @@ def run_agent(
         "claude",
         "-p",
         "--output-format", "stream-json",
+        "--verbose",
         "--no-session-persistence",
         "--system-prompt", system_prompt,
         "--allowedTools", "Bash", "Read",
@@ -390,9 +421,6 @@ def run_agent(
 
     if model:
         cmd.extend(["--model", model])
-
-    if verbose:
-        cmd.append("--verbose")
 
     cmd.append(prompt)
 

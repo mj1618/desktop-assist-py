@@ -53,3 +53,7 @@ Also: prefer `proc.stdout.readline()` in a `while` loop over `for line in proc.s
 # Use claude CLI tool
 
 If you need to call an agent, just use the Claude CLI that is already installed and configured.
+
+# Claude CLI: --output-format stream-json requires --verbose
+
+When using `claude -p` (print mode) with `--output-format stream-json`, the `--verbose` flag is **required** — the CLI will exit with code 1 otherwise. Always pass `--verbose` alongside `--output-format stream-json`.
