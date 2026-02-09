@@ -22,7 +22,35 @@ pip install -e ".[dev]"
 
 # run the demo
 desktop-assist
+
+# run the agent with a task
+desktop-assist "Open Safari and search for flights to Tokyo"
 ```
+
+## Agent usage
+
+The core feature is the LLM-driven agent loop. Pass a natural-language prompt
+and the agent uses the Claude CLI to drive mouse, keyboard, and screen actions:
+
+```bash
+# basic usage
+desktop-assist "take a screenshot and tell me what you see"
+
+# choose a model
+desktop-assist --model sonnet "open TextEdit and type hello world"
+
+# preview the Claude CLI command without executing
+desktop-assist --dry-run "open Finder"
+
+# verbose output (see each tool call)
+desktop-assist -v "resize the Terminal window to 800x600"
+
+# limit agent turns
+desktop-assist --max-turns 10 "open Safari"
+```
+
+**Requirements:** The [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
+must be installed and configured (`claude` on PATH).
 
 ## Project layout
 
@@ -30,13 +58,15 @@ desktop-assist
 desktop_assist/
 ├── __init__.py    # package metadata
 ├── actions.py     # mouse & keyboard helpers (click, type, hotkey, …)
+├── agent.py       # LLM agent loop (drives desktop via Claude CLI)
 ├── clipboard.py   # clipboard read/write and copy/paste helpers
 ├── launcher.py    # launch apps, open files/URLs, check running state
 ├── screen.py      # screen capture & image-location helpers
 ├── filesystem.py  # file system helpers (read, write, list, find, wait)
 ├── notifications.py # system notifications and modal dialogs
+├── tools.py       # auto-discovered tool registry for the agent
 ├── windows.py     # window discovery, focus, move & resize
-└── main.py        # CLI entry point / demo
+└── main.py        # CLI entry point
 ```
 
 ## Key modules
@@ -50,7 +80,9 @@ desktop_assist/
 | `filesystem` | Read, write, append, list, find, and wait for files. Includes `wait_for_file` for downloads and `find_files` for recursive search. Standard library only. |
 | `notifications` | System notification banners and blocking modal dialogs (alert, confirm, prompt). Uses `osascript` on macOS, `notify-send`/`zenity` on Linux. |
 | `windows` | List, find, focus, move and resize application windows. Uses Quartz + AppleScript on macOS, pygetwindow elsewhere. |
-| `main` | Entry point that wires everything together. Run via `desktop-assist` after install. |
+| `tools` | Auto-discovers all public functions from helper modules and builds a tool registry with descriptions for the LLM system prompt. |
+| `agent` | Agent loop that sends the user's prompt to the Claude CLI with a system prompt describing all tools, then lets Claude drive the desktop via Bash tool calls. |
+| `main` | CLI entry point with argparse. Runs the agent loop when given a prompt, demo mode otherwise. |
 
 ## Safety
 
