@@ -222,7 +222,63 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Maximum budget in USD for the agent run (default: 1.00).",
     )
+    parser.add_argument(
+        "--instructions",
+        type=str,
+        default=None,
+        help="Inline custom instructions to append to the agent system prompt.",
+    )
+    parser.add_argument(
+        "--instructions-file",
+        type=str,
+        metavar="PATH",
+        default=None,
+        help="Load custom instructions from a file.",
+    )
+    parser.add_argument(
+        "--no-auto-instructions",
+        action="store_true",
+        help="Disable auto-loading .desktop-assist.md from the current directory.",
+    )
     return parser
+
+
+def _load_instructions(args: argparse.Namespace) -> str | None:
+    """Combine custom instructions from all sources.
+
+    Priority (all are concatenated):
+    1. Auto-loaded .desktop-assist.md (unless --no-auto-instructions)
+    2. --instructions-file content
+    3. --instructions inline text
+    """
+    from desktop_assist.instructions import find_instructions_file, load_instructions_file
+
+    parts: list[str] = []
+
+    # 1. Auto-load .desktop-assist.md
+    if not args.no_auto_instructions:
+        auto_path = find_instructions_file()
+        if auto_path:
+            try:
+                parts.append(load_instructions_file(auto_path))
+                print(f"Loaded instructions from {auto_path}", file=sys.stderr)
+            except (ValueError, OSError) as exc:
+                print(f"Warning: could not load {auto_path}: {exc}", file=sys.stderr)
+
+    # 2. --instructions-file
+    if args.instructions_file:
+        try:
+            parts.append(load_instructions_file(args.instructions_file))
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"Error loading instructions file: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    # 3. --instructions inline
+    if args.instructions:
+        parts.append(args.instructions)
+
+    combined = "\n\n".join(p for p in parts if p.strip())
+    return combined or None
 
 
 def main() -> None:
@@ -281,6 +337,8 @@ def main() -> None:
             print("\nBye!")
         return
 
+    custom_instructions = _load_instructions(args)
+
     from desktop_assist.agent import run_agent
 
     try:
@@ -294,6 +352,7 @@ def main() -> None:
             log_dir=args.log_dir,
             resume_from=resume_from,
             max_budget=args.max_budget,
+            instructions=custom_instructions,
         )
         print(result)
     except KeyboardInterrupt:

@@ -357,14 +357,23 @@ def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=5)
 
 
-def _build_system_prompt() -> str:
+def _build_system_prompt(custom_instructions: str | None = None) -> str:
     """Build the system prompt with tool descriptions and platform info."""
     platform = "macOS" if sys.platform == "darwin" else sys.platform
-    return _SYSTEM_PROMPT_TEMPLATE.format(
+    prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         platform=platform,
         tool_descriptions=get_tool_descriptions(),
         python=sys.executable,
     )
+    if custom_instructions:
+        prompt += textwrap.dedent("""\
+
+            ## Custom Instructions
+
+            The user has provided the following additional instructions. Follow them carefully:
+
+        """) + custom_instructions + "\n"
+    return prompt
 
 
 def run_agent(
@@ -378,6 +387,7 @@ def run_agent(
     log_dir: str | None = None,
     resume_from: str | None = None,
     max_budget: float = 1.0,
+    instructions: str | None = None,
 ) -> str:
     """Run the agent loop: send *prompt* to Claude CLI and let it drive the desktop.
 
@@ -401,6 +411,8 @@ def run_agent(
         Session ID of a previous session being resumed (for log linkage).
     max_budget:
         Maximum spend in USD for the agent run (default 1.0).
+    instructions:
+        Custom instructions to append to the system prompt.
 
     Returns
     -------
@@ -412,11 +424,17 @@ def run_agent(
     session_logger: SessionLogger | None = None
     if log and not dry_run:
         session_logger = SessionLogger(session_dir=log_dir)
-        session_logger.log_start(prompt, model=model, max_turns=max_turns, max_budget=max_budget)
+        session_logger.log_start(
+            prompt,
+            model=model,
+            max_turns=max_turns,
+            max_budget=max_budget,
+            has_custom_instructions=bool(instructions),
+        )
         if resume_from:
             session_logger.log_resume(resume_from)
 
-    system_prompt = _build_system_prompt()
+    system_prompt = _build_system_prompt(custom_instructions=instructions)
 
     cmd = [
         "claude",

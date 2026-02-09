@@ -54,6 +54,7 @@ class SessionLogger:
         model: str | None = None,
         max_turns: int = 30,
         max_budget: float | None = None,
+        has_custom_instructions: bool = False,
     ) -> None:
         self._write(
             event="start",
@@ -61,6 +62,7 @@ class SessionLogger:
             model=model,
             max_turns=max_turns,
             max_budget=max_budget,
+            has_custom_instructions=has_custom_instructions,
         )
 
     def log_resume(self, previous_session_id: str) -> None:
