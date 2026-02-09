@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import string
+import sys
 import time
 from pathlib import Path
 
@@ -77,6 +78,170 @@ def get_screen_size() -> tuple[int, int]:
     """Return the primary screen resolution as ``(width, height)``."""
     size = pyautogui.size()
     return (size.width, size.height)
+
+
+def list_displays() -> list[dict]:
+    """List all connected displays with their properties.
+
+    Returns a list of dicts, each with:
+    - id: display ID (int)
+    - name: display name (str, e.g. "Built-in Retina Display")
+    - width: pixel width (int)
+    - height: pixel height (int)
+    - x: origin x in global coordinate space (int)
+    - y: origin y in global coordinate space (int)
+    - is_primary: whether this is the main display (bool)
+    - scale_factor: Retina scale factor (float, e.g. 2.0)
+
+    On macOS, uses Quartz and AppKit APIs.  On other platforms, returns
+    a single entry based on pyautogui.size().
+    """
+    if sys.platform == "darwin":
+        return _list_displays_macos()
+    return _list_displays_fallback()
+
+
+def _list_displays_macos() -> list[dict]:
+    """Enumerate displays on macOS using Quartz and AppKit."""
+    import Quartz
+    from AppKit import NSScreen
+
+    err, display_ids, count = Quartz.CGGetActiveDisplayList(32, None, None)
+    if err != 0 or not display_ids:
+        return _list_displays_fallback()
+
+    # Build a mapping from CGDirectDisplayID → NSScreen for name/scale
+    ns_screens: dict[int, object] = {}
+    for ns in NSScreen.screens():
+        desc = ns.deviceDescription()
+        ns_id = desc.get("NSScreenNumber", 0)
+        ns_screens[int(ns_id)] = ns
+
+    displays = []
+    for idx, did in enumerate(display_ids[:count]):
+        bounds = Quartz.CGDisplayBounds(did)
+        is_main = bool(Quartz.CGDisplayIsMain(did))
+        w = int(Quartz.CGDisplayPixelsWide(did))
+        h = int(Quartz.CGDisplayPixelsHigh(did))
+
+        ns = ns_screens.get(int(did))
+        scale = float(ns.backingScaleFactor()) if ns else 1.0
+        has_name = ns and hasattr(ns, "localizedName")
+        name = str(ns.localizedName()) if has_name else f"Display {idx + 1}"
+
+        displays.append({
+            "id": int(did),
+            "name": name,
+            "width": w,
+            "height": h,
+            "x": int(bounds.origin.x),
+            "y": int(bounds.origin.y),
+            "is_primary": is_main,
+            "scale_factor": scale,
+        })
+
+    # Sort: primary first, then by x position
+    displays.sort(key=lambda d: (not d["is_primary"], d["x"], d["y"]))
+    return displays
+
+
+def _list_displays_fallback() -> list[dict]:
+    """Fallback for non-macOS: return a single display from pyautogui."""
+    w, h = get_screen_size()
+    return [{
+        "id": 0,
+        "name": "Primary Display",
+        "width": w,
+        "height": h,
+        "x": 0,
+        "y": 0,
+        "is_primary": True,
+        "scale_factor": 1.0,
+    }]
+
+
+def save_screenshot_display(
+    path: str | Path,
+    display_index: int = 0,
+    max_width: int | None = 1920,
+) -> Path:
+    """Capture a specific display and save it to *path*.
+
+    *display_index* is 0-based, matching the order from list_displays().
+    Use display_index=0 for the primary display, 1 for secondary, etc.
+
+    When *max_width* is set (default 1920), the screenshot is downscaled
+    proportionally if its width exceeds the limit.
+
+    Returns the resolved path of the saved file.
+    """
+    displays = list_displays()
+    if display_index < 0 or display_index >= len(displays):
+        raise IndexError(
+            f"display_index {display_index} out of range "
+            f"(have {len(displays)} display(s))"
+        )
+
+    display = displays[display_index]
+    path = Path(path)
+
+    if sys.platform == "darwin":
+        img = _capture_display_macos(display["id"])
+    else:
+        # Fallback: capture the region from the virtual screen
+        region = (display["x"], display["y"], display["width"], display["height"])
+        img = take_screenshot(region=region)
+
+    if max_width is not None:
+        img = downscale_image(img, max_width)
+    img.save(path)
+    return path.resolve()
+
+
+def _capture_display_macos(display_id: int) -> Image.Image:
+    """Capture a specific display on macOS using CGDisplayCreateImage."""
+    import Quartz
+
+    cg_image = Quartz.CGDisplayCreateImage(display_id)
+    if cg_image is None:
+        raise RuntimeError(f"CGDisplayCreateImage failed for display {display_id}")
+
+    w = Quartz.CGImageGetWidth(cg_image)
+    h = Quartz.CGImageGetHeight(cg_image)
+
+    # Convert CGImage → raw bytes → PIL Image
+    color_space = Quartz.CGColorSpaceCreateDeviceRGB()
+    bpc = 8  # bits per component
+    bpr = 4 * w  # bytes per row (RGBA)
+    context = Quartz.CGBitmapContextCreate(
+        None, w, h, bpc, bpr, color_space,
+        Quartz.kCGImageAlphaPremultipliedLast,
+    )
+    Quartz.CGContextDrawImage(context, Quartz.CGRectMake(0, 0, w, h), cg_image)
+    data = Quartz.CGBitmapContextGetData(context)
+
+    if data is None:
+        raise RuntimeError("Failed to get bitmap data from CGBitmapContext")
+
+    # CGBitmapContext data is a raw buffer — convert to bytes
+    buf = data.as_buffer(bpr * h)
+    img = Image.frombytes("RGBA", (w, h), bytes(buf), "raw", "RGBA")
+    return img.convert("RGB")
+
+
+def display_at_point(x: int, y: int) -> dict | None:
+    """Return the display that contains the given global coordinates.
+
+    Useful for determining which monitor a window or click target is on.
+    Returns the same dict format as list_displays(), or None if the
+    point is outside all displays.
+    """
+    for d in list_displays():
+        dx, dy = d["x"], d["y"]
+        dw, dh = d["width"], d["height"]
+        if dx <= x < dx + dw and dy <= y < dy + dh:
+            return d
+    return None
 
 
 def get_cursor_position() -> tuple[int, int]:

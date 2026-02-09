@@ -144,6 +144,11 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     enabled in Safari > Develop menu.  get_page_url() and get_page_title()
     work without this setting.
 
+    When working on a multi-monitor setup, use list_displays() to discover
+    connected monitors and save_screenshot_display() to capture a specific
+    display.  Use display_at_point(x, y) to identify which monitor contains
+    a given coordinate.
+
     Important guidelines:
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.

@@ -824,3 +824,192 @@ class TestScreenshotWhenStableDownscale:
         screen.screenshot_when_stable(str(out), timeout=5.0, max_width=None)
         saved = Image.open(out)
         assert saved.size == (3456, 2234)
+
+
+# ---------------------------------------------------------------------------
+# list_displays (fallback path)
+# ---------------------------------------------------------------------------
+
+
+_FAKE_DISPLAYS = [
+    {
+        "id": 1,
+        "name": "Built-in Display",
+        "width": 2560,
+        "height": 1600,
+        "x": 0,
+        "y": 0,
+        "is_primary": True,
+        "scale_factor": 2.0,
+    },
+    {
+        "id": 2,
+        "name": "External Monitor",
+        "width": 3840,
+        "height": 2160,
+        "x": 2560,
+        "y": -280,
+        "is_primary": False,
+        "scale_factor": 2.0,
+    },
+]
+
+_SINGLE_DISPLAY_4K = [{
+    "id": 0, "name": "Primary", "width": 3840, "height": 2160,
+    "x": 0, "y": 0, "is_primary": True, "scale_factor": 2.0,
+}]
+
+
+class TestListDisplaysFallback:
+    def test_returns_at_least_one_display(self, monkeypatch):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen.pyautogui, "size", lambda: Size(1920, 1080))
+
+        displays = screen.list_displays()
+        assert len(displays) >= 1
+
+    def test_primary_display_first(self, monkeypatch):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen.pyautogui, "size", lambda: Size(1920, 1080))
+
+        displays = screen.list_displays()
+        assert displays[0]["is_primary"] is True
+
+    def test_display_has_expected_keys(self, monkeypatch):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen.pyautogui, "size", lambda: Size(1920, 1080))
+
+        displays = screen.list_displays()
+        for d in displays:
+            assert "id" in d
+            assert "name" in d
+            assert "width" in d and d["width"] > 0
+            assert "height" in d and d["height"] > 0
+            assert "x" in d
+            assert "y" in d
+            assert "is_primary" in d
+            assert "scale_factor" in d
+
+    def test_fallback_dimensions(self, monkeypatch):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen.pyautogui, "size", lambda: Size(2560, 1440))
+
+        displays = screen.list_displays()
+        assert displays[0]["width"] == 2560
+        assert displays[0]["height"] == 1440
+
+
+# ---------------------------------------------------------------------------
+# display_at_point
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayAtPoint:
+    def test_point_on_primary(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        d = screen.display_at_point(10, 10)
+        assert d is not None
+        assert d["is_primary"] is True
+
+    def test_point_on_secondary(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        # x=3000 is within the second display (x=2560, width=3840)
+        d = screen.display_at_point(3000, 0)
+        assert d is not None
+        assert d["name"] == "External Monitor"
+        assert d["is_primary"] is False
+
+    def test_point_outside_all_displays(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        d = screen.display_at_point(-99999, -99999)
+        assert d is None
+
+    def test_point_at_display_edge(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        # Right edge of primary (x=2559) is still in primary
+        d = screen.display_at_point(2559, 0)
+        assert d is not None
+        assert d["is_primary"] is True
+
+        # x=2560 is the start of the secondary display
+        d = screen.display_at_point(2560, 0)
+        assert d is not None
+        assert d["name"] == "External Monitor"
+
+    def test_point_just_outside_right_edge(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        # x=2560+3840 = 6400 is just outside the secondary
+        d = screen.display_at_point(6400, 0)
+        assert d is None
+
+
+# ---------------------------------------------------------------------------
+# save_screenshot_display
+# ---------------------------------------------------------------------------
+
+
+class TestSaveScreenshotDisplay:
+    def test_invalid_display_index(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        with pytest.raises(IndexError):
+            screen.save_screenshot_display("/tmp/test.png", display_index=5)
+
+    def test_negative_display_index(self, monkeypatch):
+        monkeypatch.setattr(screen, "list_displays", lambda: _FAKE_DISPLAYS)
+
+        with pytest.raises(IndexError):
+            screen.save_screenshot_display("/tmp/test.png", display_index=-1)
+
+    def test_fallback_captures_region(self, monkeypatch, tmp_path):
+        """On non-macOS, save_screenshot_display captures via region."""
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        single_display = [{
+            "id": 0, "name": "Primary", "width": 1920, "height": 1080,
+            "x": 0, "y": 0, "is_primary": True, "scale_factor": 1.0,
+        }]
+        monkeypatch.setattr(screen, "list_displays", lambda: single_display)
+
+        captured_region = {}
+
+        def fake_screenshot(region=None):
+            captured_region["region"] = region
+            return _make_image(1920, 1080)
+
+        monkeypatch.setattr(screen, "take_screenshot", fake_screenshot)
+
+        out = tmp_path / "display.png"
+        result = screen.save_screenshot_display(str(out), display_index=0)
+        assert result.exists()
+        assert captured_region["region"] == (0, 0, 1920, 1080)
+
+    def test_downscale_applied(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen, "list_displays", lambda: _SINGLE_DISPLAY_4K)
+        monkeypatch.setattr(
+            screen, "take_screenshot",
+            lambda region=None: _make_image(3840, 2160),
+        )
+
+        out = tmp_path / "display.png"
+        screen.save_screenshot_display(str(out), display_index=0, max_width=1920)
+        saved = Image.open(out)
+        assert saved.width == 1920
+
+    def test_no_downscale_when_none(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(screen, "sys", MagicMock(platform="linux"))
+        monkeypatch.setattr(screen, "list_displays", lambda: _SINGLE_DISPLAY_4K)
+        monkeypatch.setattr(
+            screen, "take_screenshot",
+            lambda region=None: _make_image(3840, 2160),
+        )
+
+        out = tmp_path / "display.png"
+        screen.save_screenshot_display(str(out), display_index=0, max_width=None)
+        saved = Image.open(out)
+        assert saved.size == (3840, 2160)
