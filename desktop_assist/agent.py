@@ -16,22 +16,26 @@ from desktop_assist.tools import get_tool_descriptions
 
 _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     You are a desktop automation agent controlling a {platform} computer.
-    You have access to a Bash tool.  Use it to call the desktop-assist Python
-    helpers listed below.  Each helper is a function you invoke via a short
-    Python snippet.  Example:
+    You have access to a Bash tool and a Read tool.  Use Bash to call the
+    desktop-assist Python helpers listed below.  Each helper is a function
+    you invoke via a short Python snippet.  Use the Read tool to view
+    screenshot images so you can see what is on screen.
 
-        python3 -c "
-    from desktop_assist.screen import take_screenshot, save_screenshot
-    path = save_screenshot('/tmp/screen.png')
-    print(path)
-    "
+    Example — take and view a screenshot:
 
-    After performing actions, take a screenshot to verify the result:
-
-        python3 -c "
+        Step 1 (Bash): python3 -c "
     from desktop_assist.screen import save_screenshot
     print(save_screenshot('/tmp/screen.png'))
     "
+
+        Step 2 (Read): Use the Read tool on /tmp/screen.png to see the screen.
+
+    After performing actions, take AND VIEW a screenshot to verify the result:
+        1. Save a screenshot with save_screenshot('/tmp/screen.png')
+        2. Use the Read tool on /tmp/screen.png to actually see the screen
+
+    This two-step workflow is critical — saving a screenshot alone does not
+    let you see it.  You MUST use the Read tool to view the saved image.
 
     Available tools:
     {tool_descriptions}
@@ -39,7 +43,8 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     Important guidelines:
     - Always call one tool at a time and verify the result before continuing.
     - If a tool call fails, read the error and try a different approach.
-    - Use take_screenshot / save_screenshot to verify visual state after actions.
+    - After every significant action, save a screenshot AND view it with the
+      Read tool to confirm the action had the intended effect.
     - When you are done, reply with a brief summary of what you accomplished.
     - Do NOT ask the user for input — complete the task autonomously.
     - The python executable is: {python}
@@ -160,7 +165,12 @@ def _process_stream_line(
                 step_num = step_counter[0]
                 tool_start_times[tool_id] = time.monotonic()
 
-                summary = _format_command(command) if command else json.dumps(tool_input)
+                if command:
+                    summary = _format_command(command)
+                elif tool_input.get("file_path"):
+                    summary = tool_input["file_path"]
+                else:
+                    summary = json.dumps(tool_input)
                 _log(
                     f"\n{_c(_CYAN, f'[{step_num}]')} "
                     f"{_c(_BOLD, tool_name)}: "
@@ -170,7 +180,8 @@ def _process_stream_line(
                     _log(f"    {_c(_DIM, '$ ' + _truncate(command, 300))}")
 
                 if session_logger is not None:
-                    session_logger.log_tool_call(tool_name, tool_id, command or None)  # type: ignore[union-attr]
+                    log_detail = command or tool_input.get("file_path") or None
+                    session_logger.log_tool_call(tool_name, tool_id, log_detail)  # type: ignore[union-attr]
 
             elif block_type == "text":
                 text = block.get("text", "").strip()
@@ -301,7 +312,7 @@ def run_agent(
         "--output-format", "stream-json",
         "--no-session-persistence",
         "--system-prompt", system_prompt,
-        "--allowedTools", "Bash",
+        "--allowedTools", "Bash", "Read",
         "--dangerously-skip-permissions",
         "--max-budget-usd", "1.00",
     ]
