@@ -65,6 +65,26 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     to respond.  This is faster and more reliable than clicking by coordinates.
     Use dismiss_dialog() for common actions like accepting or cancelling.
 
+    When you need to find or interact with a specific UI element (button,
+    text field, checkbox, etc.), use get_ui_elements() to inspect the
+    accessibility tree rather than relying solely on screenshots and OCR.
+    This is faster and more reliable.
+
+    Example — find and click a button:
+
+        Step 1 (Bash): python3 -c "
+    from desktop_assist.accessibility import get_ui_elements
+    print(get_ui_elements('Safari', element_types=['button']))
+    "
+
+        Step 2 (Bash): python3 -c "
+    from desktop_assist.accessibility import click_element
+    print(click_element('Safari', 'button', 'Downloads'))
+    "
+
+    Use set_element_value() to type into text fields directly by name,
+    and get_focused_element() to verify which element currently has focus.
+
     After actions that trigger animations or page loads (launching an app,
     clicking a link, opening a menu), prefer screenshot_when_stable() over
     save_screenshot() to ensure you capture the final state rather than a

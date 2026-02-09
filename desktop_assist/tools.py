@@ -7,6 +7,7 @@ import re
 from typing import Any, Callable
 
 from desktop_assist import (
+    accessibility,
     actions,
     clipboard,
     dialogs,
@@ -27,6 +28,7 @@ _MODULES = [
     windows,
     menus,
     dialogs,
+    accessibility,
     clipboard,
     launcher,
     notifications,
