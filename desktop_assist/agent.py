@@ -85,6 +85,27 @@ _SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""\
     Use set_element_value() to type into text fields directly by name,
     and get_focused_element() to verify which element currently has focus.
 
+    After triggering actions that cause UI changes (opening dialogs, navigating
+    pages, launching apps), use wait_for_element() to wait for the expected UI
+    state before continuing.  This is more reliable than time.sleep() or
+    screenshot-based waiting.
+
+    Example — open Save dialog and wait for it:
+
+        Step 1 (Bash): python3 -c "
+    from desktop_assist.accessibility import click_element
+    click_element('TextEdit', 'button', 'Save')
+    "
+
+        Step 2 (Bash): python3 -c "
+    from desktop_assist.accessibility import wait_for_element
+    el = wait_for_element('TextEdit', role='text field', title='Save As', timeout=5.0)
+    print(el)
+    "
+
+    Use find_element() to locate a specific element without enumerating the
+    entire tree — it's faster than get_ui_elements() for targeted lookups.
+
     After actions that trigger animations or page loads (launching an app,
     clicking a link, opening a menu), prefer screenshot_when_stable() over
     save_screenshot() to ensure you capture the final state rather than a

@@ -451,6 +451,190 @@ class TestGetFocusedElement:
 
 
 # ---------------------------------------------------------------------------
+# find_element
+# ---------------------------------------------------------------------------
+
+
+class TestFindElement:
+    def test_finds_by_role(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT),
+        )
+        result = accessibility.find_element("Safari", role="button")
+        assert result is not None
+        assert result["role"] == "button"
+        assert result["title"] == "Downloads"
+
+    def test_finds_by_title(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT),
+        )
+        result = accessibility.find_element("Safari", title="Downloads")
+        assert result is not None
+        assert result["title"] == "Downloads"
+
+    def test_finds_by_role_and_title(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT),
+        )
+        result = accessibility.find_element("Safari", role="button", title="Downloads")
+        assert result is not None
+        assert result["role"] == "button"
+
+    def test_finds_by_value(self, monkeypatch):
+        element_with_value = (
+            "AXTextField|||Search|||URL bar|||https://example.com"
+            "|||100,50,500,30|||true|||true\n"
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=element_with_value),
+        )
+        result = accessibility.find_element("Safari", value="example")
+        assert result is not None
+        assert result["value"] == "https://example.com"
+
+    def test_returns_none_when_not_found(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=""),
+        )
+        assert accessibility.find_element("Safari", role="button") is None
+
+    def test_returns_none_on_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(returncode=1),
+        )
+        assert accessibility.find_element("Safari", role="button") is None
+
+    def test_returns_none_on_non_macos(self, monkeypatch):
+        monkeypatch.setattr(accessibility, "_is_macos", lambda: False)
+        assert accessibility.find_element("Safari", role="button") is None
+
+    def test_no_filters_returns_first_element(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT),
+        )
+        result = accessibility.find_element("Safari")
+        assert result is not None
+
+    def test_window_index_in_script(self, monkeypatch):
+        captured: list[str] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(args[2])
+            return _make_completed_process(stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        accessibility.find_element("Safari", role="button", window_index=2)
+        assert "window 3" in captured[0]
+
+    def test_role_filter_in_script(self, monkeypatch):
+        captured: list[str] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(args[2])
+            return _make_completed_process(stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        accessibility.find_element("Safari", role="button")
+        assert "AXButton" in captured[0]
+
+    def test_title_filter_in_script(self, monkeypatch):
+        captured: list[str] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(args[2])
+            return _make_completed_process(stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        accessibility.find_element("Safari", title="Downloads")
+        assert "downloads" in captured[0]  # lowercase for case-insensitive
+
+    def test_escapes_app_name(self, monkeypatch):
+        captured: list[str] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(args[2])
+            return _make_completed_process(stdout="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        accessibility.find_element('My "App"', role="button")
+        assert 'tell process "My \\"App\\""' in captured[0]
+
+
+# ---------------------------------------------------------------------------
+# wait_for_element
+# ---------------------------------------------------------------------------
+
+
+class TestWaitForElement:
+    def test_returns_element_immediately(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT),
+        )
+        result = accessibility.wait_for_element(
+            "Safari", role="button", title="Downloads", timeout=1.0,
+        )
+        assert result is not None
+        assert result["title"] == "Downloads"
+
+    def test_returns_none_on_timeout(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: _make_completed_process(stdout=""),
+        )
+        result = accessibility.wait_for_element(
+            "Safari", role="button", title="Missing",
+            timeout=0.3, poll_interval=0.1,
+        )
+        assert result is None
+
+    def test_finds_after_initial_miss(self, monkeypatch):
+        call_count = {"n": 0}
+
+        def delayed_find(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                return _make_completed_process(stdout="")
+            return _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT)
+
+        monkeypatch.setattr(subprocess, "run", delayed_find)
+        result = accessibility.wait_for_element(
+            "Safari", role="button", timeout=5.0, poll_interval=0.05,
+        )
+        assert result is not None
+        assert result["role"] == "button"
+        assert call_count["n"] >= 3
+
+    def test_returns_none_on_non_macos(self, monkeypatch):
+        monkeypatch.setattr(accessibility, "_is_macos", lambda: False)
+        result = accessibility.wait_for_element(
+            "Safari", role="button", timeout=0.2, poll_interval=0.05,
+        )
+        assert result is None
+
+    def test_passes_window_index(self, monkeypatch):
+        captured: list[str] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(args[2])
+            return _make_completed_process(stdout=SAMPLE_SINGLE_ELEMENT)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        accessibility.wait_for_element(
+            "Safari", role="button", window_index=1, timeout=1.0,
+        )
+        assert "window 2" in captured[0]
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 
@@ -462,12 +646,14 @@ class TestToolRegistration:
         accessibility_tools = [
             name for name in TOOLS if name.startswith("accessibility.")
         ]
-        assert len(accessibility_tools) >= 5
+        assert len(accessibility_tools) >= 7
         expected = {
             "accessibility.get_ui_elements",
             "accessibility.click_element",
             "accessibility.get_element_at",
             "accessibility.set_element_value",
             "accessibility.get_focused_element",
+            "accessibility.find_element",
+            "accessibility.wait_for_element",
         }
         assert expected.issubset(set(accessibility_tools))

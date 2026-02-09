@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 
 
 def _is_macos() -> bool:
@@ -529,3 +530,235 @@ def get_focused_element(app_name: str) -> dict | None:
 
     elements = _parse_elements(output)
     return elements[0] if elements else None
+
+
+# ---------------------------------------------------------------------------
+# Find / Wait helpers
+# ---------------------------------------------------------------------------
+
+# AppleScript that walks the accessibility tree and returns the first element
+# matching optional role / title / value filters.  Uses early-exit so it is
+# faster than enumerating all elements when the match appears early.
+_FIND_ELEMENT_SCRIPT = """\
+tell application "System Events"
+    tell process "{app}"
+        try
+            set w to window {window_index}
+        on error
+            return ""
+        end try
+        set elems to entire contents of w
+        repeat with el in elems
+            try
+                set r to role of el
+            on error
+                set r to ""
+            end try
+{role_filter}
+            try
+                set n to name of el
+                if n is missing value then set n to ""
+            on error
+                set n to ""
+            end try
+{title_filter}
+            try
+                set v to value of el
+                if v is missing value then
+                    set v to ""
+                else
+                    set v to v as text
+                end if
+            on error
+                set v to ""
+            end try
+{value_filter}
+            try
+                set d to description of el
+                if d is missing value then set d to ""
+            on error
+                set d to ""
+            end try
+            try
+                set p to position of el
+                set px to item 1 of p
+                set py to item 2 of p
+            on error
+                set px to -1
+                set py to -1
+            end try
+            try
+                set s to size of el
+                set sw to item 1 of s
+                set sh to item 2 of s
+            on error
+                set sw to 0
+                set sh to 0
+            end try
+            try
+                set en to enabled of el
+            on error
+                set en to true
+            end try
+            try
+                set fo to focused of el
+            on error
+                set fo to false
+            end try
+            set posStr to (px as text) & "," & (py as text) & ¬
+                "," & (sw as text) & "," & (sh as text)
+            return r & "|||" & n & "|||" & d & "|||" & v & ¬
+                "|||" & posStr & "|||" & (en as text) & ¬
+                "|||" & (fo as text)
+        end repeat
+        return ""
+    end tell
+end tell"""
+
+
+def _role_filter_snippet(role: str) -> str:
+    """Return an AppleScript snippet that skips elements not matching *role*."""
+    ax_role = _reverse_role(role)
+    return f'            if r is not "{ax_role}" then\n' \
+           f'                -- skip non-matching role\n' \
+           f'            else'
+
+
+def _contains_filter_snippet(var: str, lower_var: str, search: str, label: str) -> str:
+    """Return an AppleScript snippet that skips elements where *var* doesn't
+    contain *search* (case-insensitive substring match)."""
+    s = _escape(search).lower()
+    shell_cmd = (
+        f"set {lower_var} to do shell script "
+        f'"echo " & quoted form of {var} & '
+        f"\" | tr '[:upper:]' '[:lower:]'\""
+    )
+    return (
+        f'            {shell_cmd}\n'
+        f'            if {lower_var} does not contain "{s}" then\n'
+        f'                -- skip non-matching {label}\n'
+        f'            else'
+    )
+
+
+def _title_filter_snippet(title: str) -> str:
+    """Return an AppleScript snippet that skips elements whose name doesn't
+    contain *title* (case-insensitive substring match)."""
+    return _contains_filter_snippet("n", "lowerN", title, "title")
+
+
+def _value_filter_snippet(value: str) -> str:
+    """Return an AppleScript snippet that skips elements whose value doesn't
+    contain *value* (case-insensitive substring match)."""
+    return _contains_filter_snippet("v", "lowerV", value, "value")
+
+
+def find_element(
+    app_name: str,
+    role: str | None = None,
+    title: str | None = None,
+    value: str | None = None,
+    window_index: int = 0,
+) -> dict | None:
+    """Search the accessibility tree for the first matching element.
+
+    Supports partial, case-insensitive matching on *title* and *value*.
+    Uses early-exit so it stops as soon as the first match is found.
+
+    Returns a single element dict (same format as :func:`get_ui_elements`
+    entries) or ``None`` if not found.
+
+    Examples::
+
+        find_element("Safari", role="text field", title="address")
+        find_element("Finder", role="button", title="Connect")
+    """
+    if not _is_macos():
+        return None
+
+    as_window = window_index + 1
+
+    # Build filter snippets.  Each filter wraps subsequent code in an
+    # if/else block so non-matching elements are skipped immediately.
+    num_filters = 0
+    role_code = ""
+    title_code = ""
+    value_code = ""
+
+    if role is not None:
+        role_code = _role_filter_snippet(role)
+        num_filters += 1
+    if title is not None:
+        title_code = _title_filter_snippet(title)
+        num_filters += 1
+    if value is not None:
+        value_code = _value_filter_snippet(value)
+        num_filters += 1
+
+    end_ifs = "            end if\n" * num_filters
+
+    script = _FIND_ELEMENT_SCRIPT.replace(
+        "{app}", _escape(app_name)
+    ).replace(
+        "{window_index}", str(as_window)
+    ).replace(
+        "{role_filter}", role_code
+    ).replace(
+        "{title_filter}", title_code
+    ).replace(
+        "{value_filter}", value_code
+    )
+
+    # Insert end-if blocks right before the "end repeat"
+    script = script.replace(
+        "        end repeat",
+        end_ifs + "        end repeat",
+    )
+
+    ok, output = _run_applescript(script, timeout=15.0)
+    if not ok or not output:
+        return None
+
+    elements = _parse_elements(output)
+    return elements[0] if elements else None
+
+
+def wait_for_element(
+    app_name: str,
+    role: str | None = None,
+    title: str | None = None,
+    value: str | None = None,
+    timeout: float = 10.0,
+    poll_interval: float = 0.5,
+    window_index: int = 0,
+) -> dict | None:
+    """Wait for a UI element to appear in the accessibility tree.
+
+    Polls :func:`find_element` every *poll_interval* seconds until a match
+    is found or *timeout* seconds have elapsed.
+
+    Returns the element dict when found, or ``None`` on timeout.
+
+    Examples::
+
+        # After clicking "Save As…"
+        wait_for_element("TextEdit", role="text field", title="Save As")
+
+        # After launching an app
+        wait_for_element("Safari", role="text field", title="address",
+                         timeout=15.0)
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        result = find_element(
+            app_name,
+            role=role,
+            title=title,
+            value=value,
+            window_index=window_index,
+        )
+        if result is not None:
+            return result
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(poll_interval)
