@@ -67,7 +67,14 @@ desktop-assist starting agent...
 [2] Bash: print(get_screen_size())
     done (0.4s)
 
-done (2 tool calls, 8.3s)
+done (2 tool calls, 8.3s, $0.04, 5.2k in / 1.1k out)
+```
+
+The "done" line includes cost and token usage when reported by the Claude CLI.
+Session logs also persist this data, and `--list-sessions` shows a Cost column:
+
+```bash
+desktop-assist --list-sessions
 ```
 
 Use `--verbose` / `-v` to also see full tool results. The final agent

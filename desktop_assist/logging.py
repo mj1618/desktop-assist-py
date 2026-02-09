@@ -99,13 +99,32 @@ class SessionLogger:
     def log_text(self, text: str) -> None:
         self._write(event="text", text=_truncate(text))
 
-    def log_done(self, steps: int, elapsed_s: float, result: str) -> None:
-        self._write(
-            event="done",
-            steps=steps,
-            elapsed_s=round(elapsed_s, 2),
-            result_preview=_truncate(result),
-        )
+    def log_done(
+        self,
+        steps: int,
+        elapsed_s: float,
+        result: str,
+        *,
+        cost_usd: float | None = None,
+        input_tokens: int | float | None = None,
+        output_tokens: int | float | None = None,
+        num_turns: int | float | None = None,
+    ) -> None:
+        fields: dict[str, object] = {
+            "event": "done",
+            "steps": steps,
+            "elapsed_s": round(elapsed_s, 2),
+            "result_preview": _truncate(result),
+        }
+        if cost_usd is not None:
+            fields["cost_usd"] = round(cost_usd, 4)
+        if input_tokens is not None:
+            fields["input_tokens"] = int(input_tokens)
+        if output_tokens is not None:
+            fields["output_tokens"] = int(output_tokens)
+        if num_turns is not None:
+            fields["num_turns"] = int(num_turns)
+        self._write(**fields)
 
     def close(self) -> None:
         if self._file and not self._file.closed:
@@ -142,6 +161,7 @@ def list_sessions(session_dir: str | None = None) -> list[dict[str, object]]:
             "prompt": "?",
             "steps": 0,
             "elapsed_s": 0.0,
+            "cost_usd": None,
             "status": "unknown",
             "path": str(p),
         }
@@ -157,6 +177,7 @@ def list_sessions(session_dir: str | None = None) -> list[dict[str, object]]:
                     elif evt.get("event") == "done":
                         summary["steps"] = evt.get("steps", 0)
                         summary["elapsed_s"] = evt.get("elapsed_s", 0.0)
+                        summary["cost_usd"] = evt.get("cost_usd")
                         summary["status"] = "done"
         except (json.JSONDecodeError, OSError):
             pass

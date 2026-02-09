@@ -172,3 +172,99 @@ class TestRunAgent:
     def test_no_model_flag_when_none(self):
         result = agent.run_agent("test", dry_run=True)
         assert "--model" not in result
+
+
+class TestProcessStreamLineUsage:
+    """Tests for cost/usage extraction from result events."""
+
+    def test_extracts_cost_fields(self):
+        usage: dict[str, object] = {}
+        line = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Done!",
+            "cost_usd": 0.23,
+            "input_tokens": 15200,
+            "output_tokens": 3100,
+            "num_turns": 12,
+            "session_id": "abc123",
+        })
+        result = agent._process_stream_line(
+            line,
+            tool_start_times={},
+            step_counter=[0],
+            usage=usage,
+        )
+        assert result == "Done!"
+        assert usage["cost_usd"] == 0.23
+        assert usage["input_tokens"] == 15200
+        assert usage["output_tokens"] == 3100
+        assert usage["num_turns"] == 12
+        assert usage["session_id"] == "abc123"
+
+    def test_no_usage_dict_does_not_crash(self):
+        line = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Done!",
+            "cost_usd": 0.1,
+        })
+        result = agent._process_stream_line(
+            line,
+            tool_start_times={},
+            step_counter=[0],
+            usage=None,
+        )
+        assert result == "Done!"
+
+    def test_missing_cost_fields(self):
+        usage: dict[str, object] = {}
+        line = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Done!",
+        })
+        agent._process_stream_line(
+            line,
+            tool_start_times={},
+            step_counter=[0],
+            usage=usage,
+        )
+        assert usage == {}
+
+    def test_error_result_still_extracts_cost(self):
+        usage: dict[str, object] = {}
+        line = json.dumps({
+            "type": "result",
+            "subtype": "error",
+            "is_error": True,
+            "result": "Rate limit exceeded",
+            "cost_usd": 0.05,
+            "input_tokens": 500,
+            "output_tokens": 100,
+        })
+        result = agent._process_stream_line(
+            line,
+            tool_start_times={},
+            step_counter=[0],
+            usage=usage,
+        )
+        assert "[error]" in result
+        assert usage["cost_usd"] == 0.05
+
+
+class TestFmtTokens:
+    def test_small_number(self):
+        assert agent._fmt_tokens(500) == "500"
+
+    def test_exactly_1k(self):
+        assert agent._fmt_tokens(1000) == "1.0k"
+
+    def test_large_number(self):
+        assert agent._fmt_tokens(15200) == "15.2k"
+
+    def test_zero(self):
+        assert agent._fmt_tokens(0) == "0"

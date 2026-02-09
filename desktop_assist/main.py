@@ -44,15 +44,21 @@ def _list_sessions(log_dir: str | None) -> None:
         return
 
     # header
-    print(f"{'ID':<28}  {'Prompt':<40}  {'Steps':>5}  {'Duration':>8}  {'Status'}")
-    print("-" * 95)
+    print(f"{'ID':<28}  {'Prompt':<40}  {'Steps':>5}  {'Duration':>8}  {'Cost':>7}  {'Status'}")
+    print("-" * 103)
     for s in sessions:
         prompt = str(s["prompt"])
         if len(prompt) > 40:
             prompt = prompt[:37] + "..."
         elapsed = s["elapsed_s"]
         dur = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "?"
-        print(f"{s['id']:<28}  {prompt:<40}  {s['steps']:>5}  {dur:>8}  {s['status']}")
+        cost = s.get("cost_usd")
+        cost_str = f"${cost:.2f}" if isinstance(cost, (int, float)) else "-"
+        line = (
+            f"{s['id']:<28}  {prompt:<40}  {s['steps']:>5}"
+            f"  {dur:>8}  {cost_str:>7}  {s['status']}"
+        )
+        print(line)
 
 
 def _replay_session(session_id: str, log_dir: str | None) -> None:
@@ -103,10 +109,12 @@ def _replay_session(session_id: str, log_dir: str | None) -> None:
         elif event_type == "done":
             steps = evt.get("steps")
             el = evt.get("elapsed_s")
+            cost = evt.get("cost_usd")
             result = evt.get("result_preview", "")[:120]
+            cost_str = f"  cost=${cost:.4f}" if cost is not None else ""
             print(
                 f"[{ts}] DONE   steps={steps}"
-                f"  elapsed={el}s  result={result}",
+                f"  elapsed={el}s{cost_str}  result={result}",
                 file=sys.stderr,
             )
         else:

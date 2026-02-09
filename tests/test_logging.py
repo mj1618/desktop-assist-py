@@ -285,6 +285,79 @@ class TestBuildResumePrompt:
         assert len(lines) <= 30
 
 
+class TestLogDoneCost:
+    """Tests for cost/usage fields in log_done."""
+
+    def test_log_done_with_cost(self, tmp_path):
+        with SessionLogger(session_dir=str(tmp_path)) as logger:
+            logger.log_start("test", model="sonnet", max_turns=10)
+            logger.log_done(
+                5, 10.0, "Done!",
+                cost_usd=0.23,
+                input_tokens=15200,
+                output_tokens=3100,
+                num_turns=12,
+            )
+
+        log_files = list(tmp_path.glob("*.jsonl"))
+        events = []
+        with open(log_files[0]) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+
+        done_evt = events[1]
+        assert done_evt["event"] == "done"
+        assert done_evt["cost_usd"] == 0.23
+        assert done_evt["input_tokens"] == 15200
+        assert done_evt["output_tokens"] == 3100
+        assert done_evt["num_turns"] == 12
+
+    def test_log_done_without_cost(self, tmp_path):
+        with SessionLogger(session_dir=str(tmp_path)) as logger:
+            logger.log_start("test", model="sonnet", max_turns=10)
+            logger.log_done(1, 1.5, "Done!")
+
+        log_files = list(tmp_path.glob("*.jsonl"))
+        events = []
+        with open(log_files[0]) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+
+        done_evt = events[1]
+        assert done_evt["event"] == "done"
+        assert "cost_usd" not in done_evt
+        assert "input_tokens" not in done_evt
+
+    def test_list_sessions_includes_cost(self, tmp_path):
+        s = tmp_path / "20250101_100000_aaaa1111.jsonl"
+        s.write_text(
+            json.dumps({"event": "start", "prompt": "test"}) + "\n"
+            + json.dumps({
+                "event": "done", "steps": 3, "elapsed_s": 10.5,
+                "cost_usd": 0.42,
+            }) + "\n"
+        )
+
+        sessions = list_sessions(str(tmp_path))
+        assert len(sessions) == 1
+        assert sessions[0]["cost_usd"] == 0.42
+
+    def test_list_sessions_no_cost_returns_none(self, tmp_path):
+        s = tmp_path / "20250101_100000_bbbb2222.jsonl"
+        s.write_text(
+            json.dumps({"event": "start", "prompt": "old session"}) + "\n"
+            + json.dumps({"event": "done", "steps": 1, "elapsed_s": 2.0}) + "\n"
+        )
+
+        sessions = list_sessions(str(tmp_path))
+        assert len(sessions) == 1
+        assert sessions[0]["cost_usd"] is None
+
+
 class TestAgentIntegrationNoLog:
     """Test that log=False doesn't create any session files."""
 

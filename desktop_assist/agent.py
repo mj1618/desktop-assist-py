@@ -178,6 +178,18 @@ def _c(code: str, text: str) -> str:
     return text
 
 
+def _fmt_tokens(n: int | float) -> str:
+    """Format a token count for display (e.g. 15200 -> '15.2k')."""
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(int(n))
+
+
+def _numeric(value: object) -> int | float | None:
+    """Return *value* if it's a number, otherwise ``None``."""
+    return value if isinstance(value, (int, float)) else None
+
+
 def _truncate(text: str, max_len: int = 200) -> str:
     """Truncate *text* to *max_len* characters, adding an ellipsis if needed."""
     text = text.strip()
@@ -224,6 +236,7 @@ def _process_stream_line(
     tool_start_times: dict[str, float],
     step_counter: list[int],
     session_logger: object | None = None,
+    usage: dict[str, object] | None = None,
 ) -> str | None:
     """Parse a single stream-json line and print feedback.
 
@@ -248,6 +261,12 @@ def _process_stream_line(
 
     # ── Final result ────────────────────────────────────────────────
     if msg_type == "result":
+        # Extract cost/usage metadata if available
+        if usage is not None:
+            for key in ("cost_usd", "input_tokens", "output_tokens",
+                        "num_turns", "session_id"):
+                if key in data:
+                    usage[key] = data[key]
         if data.get("is_error") or data.get("subtype") == "error":
             return f"[error] {data.get('result', 'Unknown error')}"
         return data.get("result", "")
@@ -491,6 +510,7 @@ def run_agent(
     final_result: str | None = None
     tool_start_times: dict[str, float] = {}
     step_counter = [0]  # mutable so _process_stream_line can update it
+    usage: dict[str, object] = {}  # populated by _process_stream_line from result event
     agent_start = time.monotonic()
 
     # Drain stderr in a background thread to prevent deadlock — if the
@@ -520,6 +540,7 @@ def run_agent(
                 tool_start_times=tool_start_times,
                 step_counter=step_counter,
                 session_logger=session_logger,
+                usage=usage,
             )
             if result is not None:
                 final_result = result
@@ -544,10 +565,17 @@ def run_agent(
 
     elapsed = time.monotonic() - agent_start
     steps = step_counter[0]
-    _log(
-        f"\n{_c(_GREEN, 'done')} "
-        f"({steps} tool call{'s' if steps != 1 else ''}, {elapsed:.1f}s)"
-    )
+
+    # Build the "done" summary with optional cost/token info
+    parts = [f"{steps} tool call{'s' if steps != 1 else ''}", f"{elapsed:.1f}s"]
+    cost_usd = _numeric(usage.get("cost_usd"))
+    if cost_usd is not None:
+        parts.append(f"${cost_usd:.2f}")
+    input_tokens = _numeric(usage.get("input_tokens"))
+    output_tokens = _numeric(usage.get("output_tokens"))
+    if input_tokens is not None and output_tokens is not None:
+        parts.append(f"{_fmt_tokens(input_tokens)} in / {_fmt_tokens(output_tokens)} out")
+    _log(f"\n{_c(_GREEN, 'done')} ({', '.join(parts)})")
 
     # If we got a result from stream-json, use it
     if final_result is not None:
@@ -562,7 +590,13 @@ def run_agent(
         result = "[error] Empty response from Claude CLI."
 
     if session_logger is not None:
-        session_logger.log_done(steps, elapsed, result)
+        session_logger.log_done(
+            steps, elapsed, result,
+            cost_usd=_numeric(usage.get("cost_usd")),
+            input_tokens=_numeric(usage.get("input_tokens")),
+            output_tokens=_numeric(usage.get("output_tokens")),
+            num_turns=_numeric(usage.get("num_turns")),
+        )
         session_logger.close()
         _log(f"  session log: {_c(_DIM, str(session_logger.path))}")
 
